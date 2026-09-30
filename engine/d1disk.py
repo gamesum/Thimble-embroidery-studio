@@ -236,14 +236,22 @@ def disk_status(target):
     return dict(layout=True, used=used, free=36 - used)
 
 
+def _templates(target):
+    """(MENU_01.MHV, MENU_SEL.PHV) bytes to start a fresh menu from: the templates folder, or else
+    the menu files already on this disk (any Designer I disk with a menu will do)."""
+    for base, mhv_rel in ((TEMPLATES, "MENU_01.MHV"), (target, os.path.join("MENU_01", "MENU_01.MHV"))):
+        m, p = os.path.join(base, mhv_rel), os.path.join(base, "MENU_SEL.PHV")
+        if os.path.exists(m) and os.path.exists(p):
+            return open(m, "rb").read(), open(p, "rb").read()
+    raise ValueError("To start a new menu, Thimble needs the Designer I menu files. Use a disk that already has a "
+                     "Designer I menu (any factory disk works), or copy MENU_SEL.PHV and MENU_01.MHV from one into "
+                     "the templates folder.")
+
+
 def write_disk(pattern, target, name, disk_label="MY DESIGNS", mode="add", origin=(0, 0)):
     """Write a design to a Designer I disk (or folder). mode 'add' uses the next free slot of
     Menu 1 (starting a menu if the disk has none); 'replace' starts a fresh menu.
     Every file written is read back and compared. Returns dict(slot=1-based, files, info)."""
-    for f in ("MENU_SEL.PHV", "MENU_01.MHV"):
-        if not os.path.exists(os.path.join(TEMPLATES, f)):
-            raise ValueError("Designer I menu templates are missing: copy MENU_SEL.PHV and MENU_01/MENU_01.MHV from "
-                             "any Designer I disk into the templates folder (see README).")
     shv, grid, info = write_shv(pattern, name, origin)
     thumb = (grid, info["lines"], info["pixels"])
     st = disk_status(target)
@@ -256,8 +264,9 @@ def write_disk(pattern, target, name, disk_label="MY DESIGNS", mode="add", origi
         phv = None
     else:
         slot = 0
-        mhv = mhv_blank(open(os.path.join(TEMPLATES, "MENU_01.MHV"), "rb").read(), disk_label)
-        phv = write_phv(open(os.path.join(TEMPLATES, "MENU_SEL.PHV"), "rb").read(), disk_label, disk_label)
+        tmhv, tphv = _templates(target)
+        mhv = mhv_blank(tmhv, disk_label)
+        phv = write_phv(tphv, disk_label, disk_label)
     mhv = mhv_put(mhv, slot, thumb)
     files = {}
     if phv is not None:

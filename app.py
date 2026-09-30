@@ -1,5 +1,5 @@
 """Thimble - Embroidery Studio. Local web app: python app.py, then open http://127.0.0.1:5311"""
-import base64, ctypes, io, json, os, string, time, traceback, uuid, webbrowser, threading
+import re, base64, ctypes, io, json, os, string, time, traceback, uuid, webbrowser, threading
 
 from flask import Flask, jsonify, request, send_file, send_from_directory, abort
 from PIL import Image, ImageDraw, ImageFont
@@ -18,6 +18,12 @@ for d in (UPLOADS, PROJECTS, EXPORTS):
 
 app = Flask(__name__, static_folder=os.path.join(ROOT, "static"), static_url_path="/static")
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # pictures and disk files; nothing legitimate is bigger
+
+# THIMBLE_HOSTED=1: running as a public website. Then nothing personal lives on the server:
+# each visitor's API key stays in their browser (sent only with their own AI requests), projects
+# are saved in their browser, and floppy disks are written by the browser (see /api/disk/build).
+HOSTED = os.environ.get("THIMBLE_HOSTED") == "1"
 
 
 @app.after_request
@@ -130,8 +136,9 @@ def meta():
             uniq.append(t)
     return jsonify(fabrics={k: v[0] for k, v in FABRICS.items()}, threads=uniq,
                    formats={k: v for k, v in design.FORMATS.items() if v},
-                   ai=bool(config().get("anthropic_key") or os.environ.get("ANTHROPIC_API_KEY")),
-                   workspace=config().get("anthropic_workspace", ""))
+                   ai=False if HOSTED else bool(config().get("anthropic_key") or os.environ.get("ANTHROPIC_API_KEY")),
+                   workspace="" if HOSTED else config().get("anthropic_workspace", ""),
+                   hosted=HOSTED)
 
 
 # ----------------------------------------------------------------------------- images
@@ -184,8 +191,9 @@ def progress_for(job, lo=0.0, hi=1.0):
     """Callback(fraction, message) that records progress for `job` mapped into [lo, hi]."""
     if not job:
         return None
-    if len(PROGRESS) > 200:
-        PROGRESS.clear()
+    if len(PROGRESS) > 200:  # forget finished jobs first
+        for k in [k for k, v in PROGRESS.items() if v.get("done")][:100]:
+            PROGRESS.pop(k, None)
     def cb(f, msg=""):
         PROGRESS[job] = dict(pct=int(round(100 * (lo + (hi - lo) * max(0.0, min(1.0, f))))), msg=msg)
     return cb
@@ -300,6 +308,8 @@ def removable_drives():
 
 @app.get("/api/disk/drives")
 def drives():
+    if HOSTED:
+        return err("Not available on the website.", 404)
     ds = removable_drives()
     for d in ds:
         if d["ready"]:
@@ -312,6 +322,8 @@ def drives():
 
 @app.post("/api/disk/status")
 def disk_status():
+    if HOSTED:
+        return err("Not available on the website.", 404)
     target = request.get_json(force=True).get("target", "")
     if not target or not os.path.isdir(target):
         return err("That drive or folder isn't available. Is the disk in?")
@@ -320,6 +332,8 @@ def disk_status():
 
 @app.post("/api/disk/write")
 def disk_write():
+    if HOSTED:
+        return err("Not available on the website.", 404)
     body = request.get_json(force=True)
     target = body.get("target", "")
     if not target or not os.path.isdir(target):
@@ -332,10 +346,69 @@ def disk_write():
     return jsonify(res)
 
 
+# The browser reads the menu files on the visitor's floppy (Chrome/Edge folder access), sends them
+# here, and gets back exactly which files to write and delete. The disk logic is the same as the
+# local app's; it just runs on a scratch copy.
+_DISK_FILE = re.compile(r"^(MENU_SEL\.PHV|MENU_01/MENU_01\.MHV|MENU_01/DES01_\d\d\.SHV)$", re.I)
+
+
+def _disk_copy(files):
+    """Scratch folder holding the disk files the browser sent ({relative path: base64})."""
+    import base64, tempfile
+    tmp = tempfile.mkdtemp(prefix="d1web_")
+    before = {}
+    for rel, b64 in (files or {}).items():
+        rel = rel.replace("\\", "/")
+        if not _DISK_FILE.match(rel) or len(b64 or "") > 400_000:
+            continue
+        rel = rel.upper()
+        data = base64.b64decode(b64 or "")
+        path = os.path.join(tmp, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "wb").write(data)
+        before[rel] = data
+    return tmp, before
+
+
+@app.post("/api/disk/peek")
+def disk_peek():
+    import shutil
+    tmp, _ = _disk_copy(request.get_json(force=True).get("files"))
+    try:
+        return jsonify(d1disk.disk_status(tmp))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@app.post("/api/disk/build")
+def disk_build():
+    import base64, shutil
+    body = request.get_json(force=True)
+    tmp, before = _disk_copy(body.get("files"))
+    try:
+        pat = pattern_for(body["layout"])
+        name = safe_name(body["layout"].get("name"), "DESIGN")[:12]
+        res = d1disk.write_disk(pat, tmp, name, safe_name(body.get("label"), "MY DESIGNS")[:11], mode=body.get("mode", "add"))
+        after = {}
+        for root, _, names in os.walk(tmp):
+            for n in names:
+                p = os.path.join(root, n)
+                after[os.path.relpath(p, tmp).replace("\\", "/").upper()] = open(p, "rb").read()
+        write = {rel: base64.b64encode(d).decode() for rel, d in after.items() if before.get(rel) != d}
+        # write the design first and the menu last, so a pulled disk never lists a missing design
+        order = sorted(write, key=lambda r: (r.endswith(".MHV"), r.endswith(".PHV")))
+        return jsonify(slot=res["slot"], write=[[r, write[r]] for r in order],
+                       delete=[r for r in before if r not in after], status=d1disk.disk_status(tmp))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ----------------------------------------------------------------------------- projects
 
 @app.get("/api/projects")
 def projects():
+    if HOSTED:
+        return err("Not available on the website.", 404)
     items = []
     for f in sorted(os.listdir(PROJECTS), key=lambda f: -os.path.getmtime(os.path.join(PROJECTS, f))):
         if f.endswith(".json"):
@@ -345,6 +418,8 @@ def projects():
 
 @app.post("/api/projects")
 def save_project():
+    if HOSTED:
+        return err("Not available on the website.", 404)
     layout = request.get_json(force=True)
     name = safe_name(layout.get("name"))
     json.dump(layout, open(os.path.join(PROJECTS, name + ".json"), "w"), indent=1)
@@ -353,6 +428,8 @@ def save_project():
 
 @app.get("/api/projects/<path:f>")
 def load_project(f):
+    if HOSTED:
+        return err("Not available on the website.", 404)
     p = os.path.join(PROJECTS, os.path.basename(f))
     if not os.path.exists(p):
         return err("Not found", 404)
@@ -363,6 +440,8 @@ def load_project(f):
 
 @app.post("/api/ai/key")
 def ai_key():
+    if HOSTED:
+        return err("Not available on the website.", 404)
     body = request.get_json(force=True)
     key = (body.get("key") or "").strip()
     c = config()
@@ -382,19 +461,38 @@ def ai_key():
 def ai_analyze():
     from engine import ai
     body = request.get_json(force=True)
-    key = config().get("anthropic_key") or os.environ.get("ANTHROPIC_API_KEY")
+    if HOSTED:  # the visitor's own key, sent with this request only; never stored or logged here
+        key = (request.headers.get("X-Anthropic-Key") or "").strip()
+        workspace = (request.headers.get("X-Anthropic-Workspace") or "").strip() or None
+    else:
+        key = config().get("anthropic_key") or os.environ.get("ANTHROPIC_API_KEY")
+        workspace = config().get("anthropic_workspace")
     if not key:
         return err("Add your Anthropic API key in Settings to use picture reading.")
     image_id = os.path.basename(body.get("image_id", ""))
     if not os.path.exists(os.path.join(UPLOADS, image_id)):
         return err("That picture isn't loaded any more - add it again.")
     hoop = body.get("hoop", [100, 100])
+    job = request.headers.get("X-Job")
+
+    def work():
+        return ai.analyze(os.path.join(UPLOADS, image_id), image_id, hoop, key, workspace, progress_for(job),
+                          mode=body.get("mode", "exact"), refine=body.get("refine", ""), previous=body.get("previous"))
+
+    if request.headers.get("X-Async") and job:
+        # website: web hosts cut requests off after ~60 s and a read can take longer, so it runs in the
+        # background and the page collects the answer from /api/progress/<job>
+        def run():
+            try:
+                els, notes, raw = work()
+                PROGRESS[job] = dict(pct=100, msg="Done", done=True, result=dict(elements=els, notes=notes, raw=raw))
+            except Exception as e:  # noqa: BLE001 - reported to the page
+                PROGRESS[job] = dict(pct=100, msg="", done=True, error=str(e) or "The picture couldn't be read.")
+        PROGRESS[job] = dict(pct=1, msg="Starting")
+        threading.Thread(target=run, daemon=True).start()
+        return jsonify(job=job, started=True)
     try:
-        layout_elements, notes, raw = ai.analyze(os.path.join(UPLOADS, image_id), image_id, hoop, key,
-                                                 config().get("anthropic_workspace"),
-                                                 progress_for(request.headers.get("X-Job")),
-                                                 mode=body.get("mode", "creative"), refine=body.get("refine", ""),
-                                                 previous=body.get("previous"))
+        layout_elements, notes, raw = work()
     except RuntimeError as e:
         return err(str(e))
     return jsonify(elements=layout_elements, notes=notes, raw=raw)

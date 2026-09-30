@@ -33,3 +33,6 @@ fonts_emb/emilio_20_simple_small/
 fonts_emb/manga_impact/
 fonts_emb/milli_marif_bold/
 fonts_emb/pixel10/
+
+# firebase CLI cache
+.firebase/

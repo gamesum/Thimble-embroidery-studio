@@ -53,14 +53,44 @@ function watchJob(job) {
   }, 350);
 }
 function stopJob() { clearInterval(jobPoll); jobPoll = null; $("#busySub").textContent = ""; $("#busyPct").textContent = ""; $("#busyBar").style.width = "0%"; }
+// website: a picture read runs in the background (web hosts cut long requests off) and the page
+// collects the result through the same progress polling the busy badge uses
+async function aiInBackground(body) {
+  const job = `j${Date.now().toString(36)}${jobSeq++}`;
+  const r = await fetch("/api/ai/analyze", { method: "POST", body: JSON.stringify(body), headers: {
+    "Content-Type": "application/json", "X-Job": job, "X-Async": "1", "X-Anthropic-Key": webKey.key, "X-Anthropic-Workspace": webKey.ws } });
+  const j = await r.json().catch(() => ({ error: r.statusText }));
+  if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+  const bar = $("#busyBar"), pct = $("#busyPct");
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 700));
+    let p;
+    try { p = await (await fetch(`/api/progress/${job}`)).json(); } catch (e) { continue; }
+    if (p.pct) { bar.style.width = p.pct + "%"; pct.textContent = p.pct + "%"; if (p.msg) $("#busySub").textContent = p.msg; }
+    if (p.done) { stopJob(); if (p.error) throw new Error(p.error); return p.result; }
+  }
+}
+// website mode: the visitor's API key lives only in their own browser
+const webKey = {
+  get key() { try { return localStorage.getItem("thimble.akey") || ""; } catch (e) { return ""; } },
+  get ws() { try { return localStorage.getItem("thimble.aws") || ""; } catch (e) { return ""; } },
+  set(key, ws) {
+    try {
+      if (key) localStorage.setItem("thimble.akey", key);
+      if (ws) localStorage.setItem("thimble.aws", ws); else localStorage.removeItem("thimble.aws");
+    } catch (e) {}
+  },
+};
 async function api(path, body, opts = {}) {
-  const long = ["/api/build", "/api/ai/analyze", "/api/export", "/api/disk/write"].includes(path);
+  const long = ["/api/build", "/api/ai/analyze", "/api/export", "/api/disk/write", "/api/disk/build"].includes(path);
+  if (S.meta?.hosted && path === "/api/ai/analyze") return aiInBackground(body);
   const job = long ? `j${Date.now().toString(36)}${jobSeq++}` : null;
   if (job) watchJob(job);
   let r;
   try {
     r = await fetch(path, body === undefined ? {} : {
-      method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, job ? { "X-Job": job } : {}), body: JSON.stringify(body),
+      method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, job ? { "X-Job": job } : {},
+        S.meta?.hosted && path === "/api/ai/analyze" ? { "X-Anthropic-Key": webKey.key, "X-Anthropic-Workspace": webKey.ws } : {}), body: JSON.stringify(body),
     });
   } finally { if (job) stopJob(); }
   if (opts.blob) {
@@ -156,18 +186,18 @@ function save_local() { try { localStorage.setItem("thimble.layout", snapshot())
 // ------------------------------------------------------------------ examples
 const EXAMPLES = {
   limited: { name: "Limited edition", fabric: "fleece", fabric_color: "#d9d5cc", elements: [
-    { type: "shape", kind: "offset_frame", width_mm: 86, height_mm: 40, stroke_mm: 1.0, color: "#9a6b3f", style: "auto", x: 0, y: 2, rotation: 0 },
-    { type: "text", text: "LIMITED", font: "Alfa Slab One", height_mm: 12, letter_spacing: 0.04, color: "#b98a5a", outline: { color: "#6b4423", width_mm: 0.9 }, style: "auto", arc: 0, x: 0, y: -5, rotation: 0 },
-    { type: "text", text: "edition", font: "Yellowtail", height_mm: 12, letter_spacing: 0, color: "#1d1d1d", style: "auto", arc: 0, x: 6, y: 13, rotation: 0 },
-    { type: "shape", kind: "heart", width_mm: 6, height_mm: 5.5, color: "#d62839", style: "auto", x: 0, y: -24, rotation: 0 }] },
+    {"type": "shape", "kind": "offset_frame", "width_mm": 96, "height_mm": 52, "stroke_mm": 1.0, "color": "#9a6b3f", "style": "auto", "x": 0, "y": 3, "rotation": 0},
+    {"type": "text", "text": "LIMITED", "font": "✦ Barstitch Bold", "height_mm": 13, "letter_spacing": 0.04, "color": "#b98a5a", "outline": {"color": "#6b4423", "width_mm": 0.9, "first": true}, "arc": 0, "x": 0, "y": -8, "rotation": 0, "style": "auto"},
+    {"type": "text", "text": "edition", "font": "✦ Magnolia", "height_mm": 16, "letter_spacing": 0, "color": "#1d1d1d", "arc": 0, "x": 3, "y": 12, "rotation": 0, "style": "auto"},
+    {"type": "shape", "kind": "heart", "width_mm": 6, "height_mm": 5.5, "color": "#d62839", "style": "auto", "x": 0, "y": -27, "rotation": 0}] },
   varsity: { name: "Varsity", fabric: "fleece", fabric_color: "#1f2a44", elements: [
-    { type: "text", text: "RIDGELINE", font: "Graduate", height_mm: 9, letter_spacing: 0.06, arc: 70, color: "#f2f0ea", outline: { color: "#b8322a", width_mm: 1.0 }, style: "auto", x: 0, y: -14, rotation: 0 },
-    { type: "text", text: "Athletics", font: "Pacifico", height_mm: 11, letter_spacing: 0, arc: 0, color: "#c9a24a", style: "auto", x: 0, y: 6, rotation: -6 },
-    { type: "text", text: "EST. 2026", font: "Oswald", height_mm: 5.5, letter_spacing: 0.25, arc: 0, color: "#f2f0ea", style: "auto", x: 0, y: 22, rotation: 0 }] },
+    {"type": "text", "text": "RIDGELINE", "font": "✦ TT Directors", "height_mm": 15, "letter_spacing": 0.08, "arc": 50, "color": "#f2f0ea", "outline": {"color": "#b8322a", "width_mm": 1.0, "first": true}, "x": 0, "y": -18, "rotation": 0, "style": "auto"},
+    {"type": "text", "text": "Athletics", "font": "✦ Magnolia", "height_mm": 17, "letter_spacing": 0, "arc": 0, "color": "#c9a24a", "x": 0, "y": 8, "rotation": -6, "style": "auto"},
+    {"type": "text", "text": "EST. 2026", "font": "✦ Ink/Stitch Small Font", "height_mm": 5, "letter_spacing": 0.2, "arc": 0, "color": "#f2f0ea", "x": 0, "y": 27, "rotation": 0, "style": "auto"}] },
   monogram: { name: "Monogram", fabric: "woven", fabric_color: "#f6f4ef", elements: [
-    { type: "shape", kind: "ring", width_mm: 52, height_mm: 52, stroke_mm: 1.4, color: "#6f8c6a", style: "auto", x: 0, y: 0, rotation: 0 },
-    { type: "text", text: "S", font: "Great Vibes", height_mm: 30, letter_spacing: 0, arc: 0, color: "#3a2c22", style: "auto", x: 0, y: 1, rotation: 0 },
-    { type: "text", text: "SEW  WELL", font: "Cinzel Bold", height_mm: 4.5, letter_spacing: 0.3, arc: -150, color: "#6f8c6a", style: "auto", x: 0, y: 32, rotation: 0 }] },
+    {"type": "shape", "kind": "ring", "width_mm": 56, "height_mm": 56, "stroke_mm": 1.4, "color": "#6f8c6a", "style": "auto", "x": 0, "y": -4, "rotation": 0},
+    {"type": "text", "text": "S", "font": "✦ Montecarlo", "height_mm": 32, "letter_spacing": 0, "arc": 0, "color": "#3a2c22", "x": 0, "y": -4, "rotation": 0, "style": "auto"},
+    {"type": "text", "text": "SEW WELL", "font": "✦ Ink/Stitch Small Font", "height_mm": 5, "letter_spacing": 0.3, "arc": -120, "color": "#6f8c6a", "x": 0, "y": 32, "rotation": 0, "style": "auto"}] },
 };
 function loadExample(key) {
   const ex = EXAMPLES[key];
@@ -196,7 +226,56 @@ function freeSpotY(h) {
   return y + h / 2 < S.layout.hoop[1] / 2 ? y : 0;
 }
 
+// ---- multi-select (Shift+click, or drag a box on empty fabric)
+const multi = new Set(); // element ids
+function selected() {
+  // indices of everything selected (multi-selection, else the single selected item)
+  const els = S.layout.elements;
+  const ids = multi.size ? multi : new Set(S.sel >= 0 && els[S.sel] ? [els[S.sel].id] : []);
+  return els.map((e, i) => (ids.has(e.id) ? i : -1)).filter((i) => i >= 0);
+}
+function clearMulti() { multi.clear(); }
+function toggleInSelection(i) {
+  const els = S.layout.elements;
+  if (!multi.size && S.sel >= 0 && els[S.sel]) multi.add(els[S.sel].id);
+  const id = els[i].id;
+  if (multi.has(id)) {
+    multi.delete(id);
+    if (S.sel === i) S.sel = selected()[0] ?? -1;
+  } else { multi.add(id); S.sel = i; }
+  if (multi.size <= 1) { const only = selected()[0]; multi.clear(); S.sel = only ?? -1; }
+  renderLayers(); renderProps(); draw();
+}
+function removeSelected() {
+  const idx = selected();
+  if (!idx.length) return;
+  commit(true); beginEdit();
+  const gone = new Set(idx.map((i) => S.layout.elements[i].id));
+  S.layout.elements = S.layout.elements.filter((e) => !gone.has(e.id));
+  multi.clear(); S.sel = -1;
+  commit(true); renderLayers(); renderProps(); scheduleBuild(0); save_local();
+}
+function groupBox(idx) {
+  // bounding box (mm) of several items, from their stitched sizes
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const i of idx) {
+    const el = S.layout.elements[i], b = S.built?.elements?.[i];
+    if (!b) continue;
+    const a = ((el.rotation || 0) * Math.PI) / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+    const hw = (b.w * c + b.h * s) / 2, hh = (b.w * s + b.h * c) / 2;
+    x0 = Math.min(x0, el.x - hw); x1 = Math.max(x1, el.x + hw); y0 = Math.min(y0, el.y - hh); y1 = Math.max(y1, el.y + hh);
+  }
+  return isFinite(x0) ? { x0, y0, x1, y1 } : null;
+}
+function moveSelected(dx, dy) {
+  for (const i of selected()) {
+    const el = S.layout.elements[i];
+    el.x = Math.round((el.x + dx) * 10) / 10; el.y = Math.round((el.y + dy) * 10) / 10;
+  }
+}
+
 function addElement(el) {
+  clearMulti();
   commit(true); beginEdit();
   el.id = uid();
   S.layout.elements.push(el);
@@ -284,7 +363,7 @@ async function readPicture(file) {
   try {
     const info = await uploadPicture(file);
     S.images[info.image_id] = info;
-    const mode = document.querySelector('input[name="aiMode"]:checked')?.value || "creative";
+    const mode = document.querySelector('input[name="aiMode"]:checked')?.value || "exact";
     const res = await api("/api/ai/analyze", { image_id: info.image_id, hoop: S.layout.hoop, mode });
     commit(true); beginEdit();
     for (const el of res.elements) { el.id = uid(); S.layout.elements.push(el); }
@@ -299,6 +378,7 @@ async function readPicture(file) {
 }
 
 function removeElement(i) {
+  clearMulti();
   commit(true); beginEdit();
   S.layout.elements.splice(i, 1);
   S.sel = Math.min(S.sel, S.layout.elements.length - 1);
@@ -346,7 +426,7 @@ function renderLayers() {
   $("#layersEmpty").hidden = S.layout.elements.length > 0;
   S.layout.elements.forEach((el, i) => {
     const li = document.createElement("li");
-    li.className = "layer" + (i === S.sel ? " sel" : "") + (el.hidden ? " hidden" : "");
+    li.className = "layer" + (i === S.sel || multi.has(el.id) ? " sel" : "") + (el.hidden ? " hidden" : "");
     li.innerHTML = `<span class="dot" style="background:${esc(elColor(el))}"></span>
       <span class="name">${esc(elLabel(el))}</span><span class="kind">${el.type === "image" ? "pic" : el.type === "vector" ? "drawing" : el.type}</span>
       <span class="icons">
@@ -363,7 +443,8 @@ function renderLayers() {
       else if (a === "del") removeElement(i);
       else if (a === "dup") duplicate(i);
       else if (a === "hide") { commit(true); beginEdit(); el.hidden = !el.hidden; commit(true); renderLayers(); scheduleBuild(0); save_local(); }
-      else { endSew(); S.sel = i; renderLayers(); renderProps(); draw(); }
+      else if (e.shiftKey) { endSew(); toggleInSelection(i); }
+      else { endSew(); clearMulti(); S.sel = i; renderLayers(); renderProps(); draw(); }
     };
     ol.appendChild(li);
   });
@@ -472,6 +553,28 @@ function outlineFields(el) {
 
 function renderProps() {
   const box = $("#props");
+  // prune ids that no longer exist (undo, deletes)
+  for (const id of [...multi]) if (!S.layout.elements.some((e) => e.id === id)) multi.delete(id);
+  if (multi.size > 1) {
+    const idx = selected();
+    box.innerHTML = `<h2>${idx.length} pieces selected</h2>
+      <p class="hint">Drag any of them to move them together. Arrow keys nudge. Shift+click adds or removes a piece.</p>
+      <div class="align-grid" style="margin:10px 0">
+        <button class="chip" data-gplace="cx">Center across</button><button class="chip" data-gplace="cy">Center down</button>
+        <button class="chip" data-gplace="both">Center in hoop</button></div>
+      <div class="row" style="gap:6px"><button class="btn small" id="g-del">Delete ${idx.length} pieces</button>
+        <button class="btn small ghost" id="g-clear">Clear selection</button></div>
+      <ul class="multi-list">${idx.map((i) => `<li><span class="dot" style="background:${elColor(S.layout.elements[i])}"></span>${esc(elLabel(S.layout.elements[i]))}</li>`).join("")}</ul>`;
+    $$("[data-gplace]").forEach((b) => (b.onclick = () => {
+      const g = groupBox(idx); if (!g) return;
+      const k = b.dataset.gplace, cx = (g.x0 + g.x1) / 2, cy = (g.y0 + g.y1) / 2;
+      beginEdit(); moveSelected(k === "cy" ? 0 : -cx, k === "cx" ? 0 : -cy); commit(true);
+      draw(); save_local(); scheduleBuild(300);
+    }));
+    $("#g-del").onclick = removeSelected;
+    $("#g-clear").onclick = () => { clearMulti(); S.sel = -1; renderLayers(); renderProps(); draw(); };
+    return;
+  }
   const el = S.layout.elements[S.sel];
   if (!el) {
     const [W, H] = S.layout.hoop;
@@ -1042,8 +1145,25 @@ function draw() {
     }
     ctx.restore();
   }
+  // multi-selection: a dashed box round each item and one round the whole group
+  if (multi.size > 1) {
+    const idx = selected();
+    for (const i of idx) { const b = selBox(els[i], i); if (b && !els[i].hidden) boxOutline(els[i], b, "#b8322a", [5, 3], 1.4); }
+    const g = groupBox(idx);
+    if (g) {
+      const [ax, ay] = mm2px(g.x0 - 1.5, g.y0 - 1.5), [bx2, by2] = mm2px(g.x1 + 1.5, g.y1 + 1.5);
+      ctx.strokeStyle = "rgba(184,50,42,.55)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.strokeRect(ax, ay, bx2 - ax, by2 - ay); ctx.setLineDash([]);
+    }
+  }
+  if (drag && drag.kind === "marquee") {
+    const [ax, ay] = mm2px(drag.x0, drag.y0), [bx2, by2] = mm2px(drag.x1, drag.y1);
+    ctx.fillStyle = "rgba(184,50,42,.08)"; ctx.fillRect(ax, ay, bx2 - ax, by2 - ay);
+    ctx.strokeStyle = "rgba(184,50,42,.8)"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+    ctx.strokeRect(ax, ay, bx2 - ax, by2 - ay); ctx.setLineDash([]);
+  }
   // selection: PowerPoint-style box with 8 square handles + rotate knob
-  const el = els[S.sel];
+  const el = multi.size > 1 ? null : els[S.sel];
   const bx = el && !el.hidden && selBox(el, S.sel);
   if (bx) {
     boxOutline(el, bx, "#b8322a", [], 1.4);
@@ -1116,7 +1236,7 @@ cv.addEventListener("pointerdown", (e) => {
   endSew(); // clicking the design ends the sew-out preview and carries on as a normal click
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   const [mx, my] = px2mm(px, py);
-  const h = hitHandle(px, py);
+  const h = multi.size > 1 ? null : hitHandle(px, py);
   if (h) {
     const el = S.layout.elements[S.sel], b = S.built.elements[S.sel];
     beginEdit();
@@ -1126,13 +1246,27 @@ cv.addEventListener("pointerdown", (e) => {
     return;
   }
   const i = hitElement(mx, my);
-  if (i !== S.sel) { S.sel = i; renderLayers(); renderProps(); }
-  if (i >= 0) {
+  if (i >= 0 && e.shiftKey) { toggleInSelection(i); return; }
+  if (i >= 0 && multi.size > 1 && multi.has(S.layout.elements[i].id)) {
+    // drag any of the selected items: they all move together
     beginEdit();
-    const el = S.layout.elements[i];
-    drag = { kind: "move", el, dx: mx - el.x, dy: my - el.y };
+    drag = { kind: "moveMany", mx0: mx, my0: my, done: { x: 0, y: 0 } };
     cv.setPointerCapture(e.pointerId);
+    return;
   }
+  if (i < 0) {
+    // empty fabric: drag a box to select what it touches (Shift keeps the current selection)
+    if (!e.shiftKey) { clearMulti(); if (S.sel !== -1) { S.sel = -1; renderLayers(); renderProps(); } }
+    drag = { kind: "marquee", x0: mx, y0: my, x1: mx, y1: my, add: e.shiftKey };
+    cv.setPointerCapture(e.pointerId);
+    draw();
+    return;
+  }
+  if (i !== S.sel || multi.size) { clearMulti(); S.sel = i; renderLayers(); renderProps(); }
+  beginEdit();
+  const el = S.layout.elements[i];
+  drag = { kind: "move", el, dx: mx - el.x, dy: my - el.y };
+  cv.setPointerCapture(e.pointerId);
   draw();
 });
 
@@ -1195,6 +1329,15 @@ cv.addEventListener("pointermove", (e) => {
     draw();
     return;
   }
+  if (drag.kind === "marquee") { drag.x1 = mx; drag.y1 = my; draw(); return; }
+  if (drag.kind === "moveMany") {
+    const snap = e.shiftKey ? 0.1 : 0.5;
+    const tx = Math.round((mx - drag.mx0) / snap) * snap, ty = Math.round((my - drag.my0) / snap) * snap;
+    moveSelected(tx - drag.done.x, ty - drag.done.y);
+    drag.done = { x: tx, y: ty };
+    draw();
+    return;
+  }
   const el = drag.el;
   if (drag.kind === "move") {
     const snap = e.shiftKey ? 0.1 : 0.5;
@@ -1223,9 +1366,23 @@ cv.addEventListener("pointermove", (e) => {
 cv.addEventListener("pointerleave", () => { if (!drag && hoverIdx !== -1) { hoverIdx = -1; draw(); } });
 cv.addEventListener("pointerup", () => {
   if (!drag) return;
-  const k = drag.kind;
+  const k = drag.kind, d = drag;
   drag = null;
   if (k === "pan") { cv.style.cursor = "default"; return; }
+  if (k === "marquee") {
+    const x0 = Math.min(d.x0, d.x1), x1 = Math.max(d.x0, d.x1), y0 = Math.min(d.y0, d.y1), y1 = Math.max(d.y0, d.y1);
+    if (x1 - x0 > 0.5 || y1 - y0 > 0.5) {
+      if (d.add && !multi.size && S.sel >= 0) multi.add(S.layout.elements[S.sel].id);
+      S.layout.elements.forEach((el, i) => {
+        if (el.hidden) return;
+        const b = groupBox([i]);
+        if (b && b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) { multi.add(el.id); S.sel = i; }
+      });
+      if (multi.size === 1) { const only = selected()[0]; multi.clear(); S.sel = only; }
+    }
+    renderLayers(); renderProps(); draw();
+    return;
+  }
   commit(true); save_local(); renderProps(); renderLayers();
   scheduleBuild(k === "resize" ? 0 : 350);
 });
@@ -1342,9 +1499,58 @@ async function openDisk() {
   if (!S.layout.elements.length) { toast("Add something to the hoop first."); return; }
   if (blockedOffHoop()) return; // say so up front, before the disk window covers the page
   $("#diskResult").className = "result"; $("#diskResult").textContent = "";
+  const web = !!S.meta.hosted;
+  $("#diskLocal").hidden = web; $("#diskWeb").hidden = !web;
   $("#dlgDisk").showModal();
-  await refreshDrives();
+  if (!web) { await refreshDrives(); return; }
+  if (!window.showDirectoryPicker) {
+    $("#diskStatus").innerHTML = "Writing straight to a floppy needs <b>Chrome or Edge</b> on a computer. In other browsers, use <b>Save file</b> and copy the files onto the disk yourself.";
+    $("#diskPick").disabled = true; $("#diskWrite").disabled = true; return;
+  }
+  $("#diskPick").disabled = false; $("#diskWrite").disabled = false;
+  if (webDisk.dir) await diskStatus(); else $("#diskStatus").textContent = "Put the floppy in the drive, then choose it above.";
 }
+// website: the browser reads/writes the floppy itself (File System Access API, Chrome/Edge)
+const webDisk = {
+  dir: null,
+  b64(buf) { const u = new Uint8Array(buf); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); },
+  bytes(b64) { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; },
+  async sub(dir, path, create = false) { let d = dir; for (const p of path) d = await d.getDirectoryHandle(p, { create }); return d; },
+  async read() {
+    const files = {}, dir = webDisk.dir;
+    const get = async (d, n) => { try { return await d.getFileHandle(n); } catch (e) { return null; } };
+    const phv = await get(dir, "MENU_SEL.PHV");
+    if (phv) files["MENU_SEL.PHV"] = webDisk.b64(await (await phv.getFile()).arrayBuffer());
+    let m = null; try { m = await dir.getDirectoryHandle("MENU_01"); } catch (e) {}
+    if (m) {
+      const mhv = await get(m, "MENU_01.MHV");
+      if (mhv) files["MENU_01/MENU_01.MHV"] = webDisk.b64(await (await mhv.getFile()).arrayBuffer());
+      for await (const [name, h] of m.entries()) if (h.kind === "file" && /^DES01_\d\d\.SHV$/i.test(name)) files["MENU_01/" + name.toUpperCase()] = "";
+    }
+    return files;
+  },
+  async apply(write, del) {
+    for (const [rel, b64] of write) {
+      const parts = rel.split("/"), d = await webDisk.sub(webDisk.dir, parts.slice(0, -1), true);
+      const fh = await d.getFileHandle(parts[parts.length - 1], { create: true });
+      const data = webDisk.bytes(b64), w = await fh.createWritable();
+      await w.write(data); await w.close();
+      const back = new Uint8Array(await (await fh.getFile()).arrayBuffer());  // read back to check
+      if (back.length !== data.length || back.some((v, i) => v !== data[i])) throw new Error("Checking " + rel + " failed - try another disk.");
+    }
+    for (const rel of del) {
+      const parts = rel.split("/"), d = await webDisk.sub(webDisk.dir, parts.slice(0, -1));
+      await d.removeEntry(parts[parts.length - 1]).catch(() => {});
+    }
+  },
+};
+$("#diskPick").onclick = async () => {
+  try {
+    webDisk.dir = await window.showDirectoryPicker({ id: "thimble-floppy", mode: "readwrite", startIn: "desktop" });
+    $("#diskPicked").textContent = webDisk.dir.name;
+    await diskStatus();
+  } catch (e) { if (e.name !== "AbortError") $("#diskStatus").textContent = e.message; }
+};
 async function refreshDrives() {
   const sel = $("#diskDrive");
   sel.innerHTML = `<option>Looking for drives…</option>`;
@@ -1359,10 +1565,10 @@ async function refreshDrives() {
 }
 function diskTarget() { return $("#diskFolder").value.trim() || $("#diskDrive").value; }
 async function diskStatus() {
-  const t = diskTarget(), box = $("#diskStatus");
-  if (!t) { box.textContent = "Put a disk in the drive, then press Look again."; return; }
+  const t = S.meta.hosted ? webDisk.dir : diskTarget(), box = $("#diskStatus");
+  if (!t) { box.textContent = S.meta.hosted ? "Put the floppy in the drive, then choose it above." : "Put a disk in the drive, then press Look again."; return; }
   try {
-    const st = await api("/api/disk/status", { target: t });
+    const st = S.meta.hosted ? await api("/api/disk/peek", { files: await webDisk.read() }) : await api("/api/disk/status", { target: t });
     const mode = $$('input[name=diskMode]').find((r) => r.checked).value;
     const next = mode === "replace" || !st.layout ? 0 : st.used;
     box.innerHTML = (st.layout ? `This disk has a Designer menu with <b>${st.used}</b> of 36 designs.` : `No Designer menu on this disk yet — I'll create one.`) +
@@ -1371,7 +1577,7 @@ async function diskStatus() {
   } catch (e) { box.textContent = e.message; }
 }
 async function writeDisk() {
-  const target = diskTarget();
+  const target = S.meta.hosted ? webDisk.dir : diskTarget();
   const mode = $$('input[name=diskMode]').find((r) => r.checked).value;
   if (!target) { const r = $("#diskResult"); r.className = "result bad"; r.textContent = "Choose a drive first."; return; }
   if (blockedOffHoop(true)) return;
@@ -1380,7 +1586,14 @@ async function writeDisk() {
   res.className = "result"; res.textContent = "Writing… (floppies are slow — about 10 seconds)";
   $("#diskWrite").disabled = true;
   try {
-    const r = await api("/api/disk/write", { layout: S.layout, target, mode, label: $("#diskLabel").value });
+    let r;
+    if (S.meta.hosted) {
+      const b = await api("/api/disk/build", { layout: S.layout, files: await webDisk.read(), mode, label: $("#diskLabel").value });
+      await webDisk.apply(b.write, b.delete);
+      r = { slot: b.slot, files: b.write.map((w) => w[0]) };
+    } else {
+      r = await api("/api/disk/write", { layout: S.layout, target, mode, label: $("#diskLabel").value });
+    }
     res.className = "result ok";
     res.innerHTML = `✓ Written and checked. On the machine: <b>Menu 1 → slot ${r.slot}</b>. (${r.files.map(esc).join(", ")})`;
     await diskStatus();
@@ -1408,6 +1621,7 @@ function openSettings() {
   $("#setGroup").checked = S.layout.group_colors !== false;
   $("#setDensity").value = S.layout.density || "standard";
   $("#setKey").value = ""; $("#setKey").placeholder = S.meta.ai ? "Key saved — paste a new one to replace" : "sk-ant-…";
+  if (S.meta.hosted) $("#keyNote").textContent = "Your own key, saved only in this browser. It is sent only with your own picture reads, straight through to Anthropic, and never stored on the server. Pennies per picture.";
   $("#setWorkspace").value = S.meta.workspace || "";
   $("#fabricSwatches").innerHTML = FABRIC_COLORS.map((c) => `<button type="button" data-c="${c}" style="background:${c}" class="${c === S.layout.fabric_color ? "on" : ""}" aria-label="Fabric ${c}"></button>`).join("");
   $$("#fabricSwatches button").forEach((b) => (b.onclick = () => { $$("#fabricSwatches button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); }));
@@ -1426,19 +1640,34 @@ async function saveSettings() {
   commit(true);
   const key = $("#setKey").value.trim(), ws = $("#setWorkspace").value.trim();
   if (key || ws !== (S.meta.workspace || "")) {
-    const r = await api("/api/ai/key", { key, workspace: ws });
-    S.meta.ai = r.ai; S.meta.workspace = r.workspace;
-    toast("AI settings saved on this computer.", "good");
+    if (S.meta.hosted) {
+      webKey.set(key, ws); S.meta.ai = !!webKey.key; S.meta.workspace = ws;
+      toast("AI key saved in this browser only.", "good");
+    } else {
+      const r = await api("/api/ai/key", { key, workspace: ws });
+      S.meta.ai = r.ai; S.meta.workspace = r.workspace;
+      toast("AI settings saved on this computer.", "good");
+    }
   }
   $("#dlgSettings").close();
   renderProps(); scheduleBuild(0); save_local();
 }
+const webProjects = {
+  all() { try { return JSON.parse(localStorage.getItem("thimble.projects") || "{}"); } catch (e) { return {}; } },
+  save(layout) {
+    const all = webProjects.all();
+    all[layout.name || "My design"] = { layout, modified: Date.now() / 1000 };
+    localStorage.setItem("thimble.projects", JSON.stringify(all));
+  },
+};
 async function openProjects() {
-  const items = await api("/api/projects");
+  const items = S.meta.hosted
+    ? Object.entries(webProjects.all()).sort((a, b) => b[1].modified - a[1].modified).map(([name, p]) => ({ file: name, name, modified: p.modified }))
+    : await api("/api/projects");
   $("#projectList").innerHTML = items.map((p) => `<li data-f="${esc(p.file)}">${esc(p.name)}<span>${new Date(p.modified * 1000).toLocaleString()}</span></li>`).join("") ||
     `<li class="muted">No saved projects yet.</li>`;
   $$("#projectList li[data-f]").forEach((li) => (li.onclick = async () => {
-    const lay = await api("/api/projects/" + encodeURIComponent(li.dataset.f));
+    const lay = S.meta.hosted ? webProjects.all()[li.dataset.f].layout : await api("/api/projects/" + encodeURIComponent(li.dataset.f));
     commit(true); S.layout = Object.assign(DEFAULT_LAYOUT(), lay); S.sel = -1; await loadImageInfo(); afterLoad();
     $("#dlgOpen").close(); toast(`Opened “${esc(S.layout.name)}”.`);
   }));
@@ -1467,7 +1696,27 @@ $("#diskWrite").onclick = writeDisk;
 $("#btnSettings").onclick = openSettings;
 $("#setSave").onclick = saveSettings;
 $("#btnOpen").onclick = openProjects;
-$("#btnSave").onclick = async () => { try { const r = await api("/api/projects", S.layout); toast(`Saved project “${esc(S.layout.name)}”.`, "good"); } catch (e) { toast(esc(e.message), "bad"); } };
+async function saveProject() {
+  try {
+    if (S.meta.hosted) webProjects.save(JSON.parse(snapshot()));
+    else await api("/api/projects", S.layout);
+    toast(`Saved project “${esc(S.layout.name)}”${S.meta.hosted ? " in this browser" : ""}.`, "good");
+  } catch (e) { toast(esc(e.message), "bad"); }
+}
+$("#btnSaveAs").onclick = () => {
+  const name = (prompt("Save a copy as:", (S.layout.name || "My design") + " copy") || "").trim();
+  if (!name) return;
+  beginEdit(); S.layout.name = name; commit(true);
+  $("#designName").value = name; save_local();
+  saveProject();  // the original stays saved under its old name
+};
+$("#btnSave").onclick = async () => {
+  try {
+    if (S.meta.hosted) webProjects.save(JSON.parse(snapshot()));
+    else await api("/api/projects", S.layout);
+    toast(`Saved project “${esc(S.layout.name)}”${S.meta.hosted ? " in this browser" : ""}.`, "good");
+  } catch (e) { toast(esc(e.message), "bad"); }
+};
 $("#btnNew").onclick = () => {
   if (S.layout.elements.length && !confirm("Start a new design? (Save first if you want to keep this one.)")) return;
   commit(true); const keep = { hoop: S.layout.hoop, fabric: S.layout.fabric, fabric_color: S.layout.fabric_color };
@@ -1491,6 +1740,24 @@ document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y" && !typing) { e.preventDefault(); redo(); return; }
   if (typing) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+    e.preventDefault(); clearMulti();
+    S.layout.elements.forEach((x) => { if (!x.hidden) multi.add(x.id); });
+    S.sel = S.layout.elements.length - 1;
+    if (multi.size <= 1) clearMulti();
+    renderLayers(); renderProps(); draw(); return;
+  }
+  if (multi.size > 1) {
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSelected(); }
+    else if (e.key === "Escape") { clearMulti(); S.sel = -1; renderLayers(); renderProps(); draw(); }
+    else if (e.key.startsWith("Arrow")) {
+      e.preventDefault(); beginEdit();
+      const st = e.shiftKey ? 5 : 0.5;
+      moveSelected(e.key === "ArrowLeft" ? -st : e.key === "ArrowRight" ? st : 0, e.key === "ArrowUp" ? -st : e.key === "ArrowDown" ? st : 0);
+      commit(); draw(); save_local(); scheduleBuild(500);
+    }
+    return;
+  }
   const el = S.layout.elements[S.sel];
   if (!el) return;
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeElement(S.sel); }
@@ -1514,6 +1781,7 @@ $("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e
 (async function start() {
   const [meta, fonts] = await Promise.all([api("/api/meta"), api("/api/fonts")]);
   S.meta = meta; S.fonts = fonts;
+  if (meta.hosted) { S.meta.ai = !!webKey.key; S.meta.workspace = webKey.ws; }
   const order = ["vp3", "zip", "shv", "pes", "dst", "jef", "exp"];
   $("#exportFormat").innerHTML = order.filter((k) => meta.formats[k]).map((k) => `<option value="${k}">${esc(meta.formats[k])}</option>`).join("");
   try {

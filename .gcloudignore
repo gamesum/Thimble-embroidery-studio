@@ -1,0 +1,6 @@
+# what Cloud Build uploads: everything git would publish, nothing more
+#!include:.gitignore
+.git
+.gitignore
+hosting-public/
+.firebase/

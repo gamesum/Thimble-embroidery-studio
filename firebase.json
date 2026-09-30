@@ -1,0 +1,9 @@
+{
+  "hosting": {
+    "public": "hosting-public",
+    "ignore": ["firebase.json", "**/.*"],
+    "rewrites": [
+      { "source": "**", "run": { "serviceId": "thimble", "region": "us-central1" } }
+    ]
+  }
+}

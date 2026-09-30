@@ -39,6 +39,7 @@
     <button class="btn ghost" id="btnNew">New</button>
     <button class="btn ghost" id="btnOpen">Open</button>
     <button class="btn ghost" id="btnSave">Save project</button>
+    <button class="btn ghost" id="btnSaveAs" title="Save a copy under a new name">Save as…</button>
     <span class="sep"></span>
     <button class="btn ghost" id="btnSettings" title="Settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -68,8 +69,8 @@
       <input type="file" id="fileInput" accept="image/*" hidden>
       <div class="ai-mode" role="radiogroup" aria-label="How closely the AI copies the picture">
         <span title="How closely Read a picture copies it">AI style:</span>
-        <label><input type="radio" name="aiMode" value="creative" checked> Creative</label>
-        <label><input type="radio" name="aiMode" value="exact"> Exact copy</label>
+        <label><input type="radio" name="aiMode" value="exact" checked> Exact copy</label>
+        <label><input type="radio" name="aiMode" value="creative"> Creative</label>
       </div>
       <div class="ai-refine" id="aiRefine" hidden>
         <label for="aiRefineText">Refine the last picture</label>
@@ -142,9 +143,13 @@
   <form method="dialog">
     <h2>Write to a Designer I disk</h2>
     <p class="muted">Your design goes into <b>Menu 1</b>. On the machine: open the disk menu → Menu 1 → the slot shown below.</p>
-    <div class="field"><label>Drive</label>
+    <div class="field" id="diskLocal"><label>Drive</label>
       <div class="row"><select id="diskDrive"></select><button type="button" class="btn ghost small" id="diskRefresh">Look again</button></div>
       <input id="diskFolder" placeholder="…or a folder path (for testing / USB)" spellcheck="false">
+    </div>
+    <div class="field" id="diskWeb" hidden><label>Floppy drive</label>
+      <div class="row"><button type="button" class="btn" id="diskPick">Choose the floppy drive…</button><span class="muted" id="diskPicked"></span></div>
+      <p class="muted small">Your browser will ask to let Thimble edit that drive. Pick the floppy (usually A:), then allow.</p>
     </div>
     <div class="disk-status" id="diskStatus"></div>
     <div class="field"><label>How</label>
@@ -189,7 +194,7 @@
     <hr>
     <div class="field"><label for="setKey">Anthropic API key (for “Read a picture”)</label>
       <input id="setKey" type="password" placeholder="sk-ant-…" spellcheck="false" autocomplete="off">
-      <p class="muted small">Stored only on this computer (config.json). Used only to send the picture you choose to Claude. Pennies per picture.</p></div>
+      <p class="muted small" id="keyNote">Stored only on this computer (config.json). Used only to send the picture you choose to Claude. Pennies per picture.</p></div>
     <div class="field"><label for="setWorkspace">Workspace ID (only if your key isn't made inside a workspace)</label>
       <input id="setWorkspace" placeholder="wrkspc_…" spellcheck="false" autocomplete="off">
       <p class="muted small">Find it in the Anthropic Console under Settings → Workspaces. Leave empty for keys created inside a workspace.</p></div>
