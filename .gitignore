@@ -1,0 +1,35 @@
+# private: holds the Anthropic API key
+config.json
+
+# local environment and working files
+venv/
+__pycache__/
+*.pyc
+output/
+prof.out
+
+# source videos for the loading animation (static/loader.webm is the one the app uses)
+*.mp4
+
+# Designer I menu templates come from a factory Husqvarna disk - not redistributed here
+templates/*.PHV
+templates/*.MHV
+templates/*.phv
+templates/*.mhv
+
+# font research data (re-downloadable with tools/fetch_fonts.py); only the QA results are used
+fonts_emb/_meta/*
+!fonts_emb/_meta/qa.json
+
+# embroidery fonts that failed tools/font_qa.py (hidden in the app anyway)
+fonts_emb/ags_garamond_latin_grec/
+fonts_emb/amitaclo/
+fonts_emb/amitaclo_small/
+fonts_emb/art_nouveau/
+fonts_emb/dejavufont/
+fonts_emb/dinomouse72/
+fonts_emb/emilio_20_simple/
+fonts_emb/emilio_20_simple_small/
+fonts_emb/manga_impact/
+fonts_emb/milli_marif_bold/
+fonts_emb/pixel10/

@@ -1,0 +1,604 @@
+[
+ {
+  "name": "Montserrat Bold",
+  "family": "Montserrat",
+  "weight": 700,
+  "category": "Block",
+  "file": "MontserratBold.ttf"
+ },
+ {
+  "name": "Montserrat Black",
+  "family": "Montserrat",
+  "weight": 900,
+  "category": "Block",
+  "file": "MontserratBlack.ttf"
+ },
+ {
+  "name": "Poppins SemiBold",
+  "family": "Poppins",
+  "weight": 600,
+  "category": "Block",
+  "file": "PoppinsSemiBold.ttf"
+ },
+ {
+  "name": "Oswald",
+  "family": "Oswald",
+  "weight": 600,
+  "category": "Block",
+  "file": "Oswald.ttf"
+ },
+ {
+  "name": "Bebas Neue",
+  "family": "Bebas Neue",
+  "weight": 400,
+  "category": "Block",
+  "file": "BebasNeue.ttf"
+ },
+ {
+  "name": "Anton",
+  "family": "Anton",
+  "weight": 400,
+  "category": "Block",
+  "file": "Anton.ttf"
+ },
+ {
+  "name": "Archivo Black",
+  "family": "Archivo Black",
+  "weight": 400,
+  "category": "Block",
+  "file": "ArchivoBlack.ttf"
+ },
+ {
+  "name": "League Spartan Bold",
+  "family": "League Spartan",
+  "weight": 700,
+  "category": "Block",
+  "file": "LeagueSpartanBold.ttf"
+ },
+ {
+  "name": "Raleway Bold",
+  "family": "Raleway",
+  "weight": 700,
+  "category": "Block",
+  "file": "RalewayBold.ttf"
+ },
+ {
+  "name": "Roboto Bold",
+  "family": "Roboto",
+  "weight": 700,
+  "category": "Block",
+  "file": "RobotoBold.ttf"
+ },
+ {
+  "name": "Open Sans Bold",
+  "family": "Open Sans",
+  "weight": 700,
+  "category": "Block",
+  "file": "OpenSansBold.ttf"
+ },
+ {
+  "name": "Lato Bold",
+  "family": "Lato",
+  "weight": 700,
+  "category": "Block",
+  "file": "LatoBold.ttf"
+ },
+ {
+  "name": "Work Sans Bold",
+  "family": "Work Sans",
+  "weight": 700,
+  "category": "Block",
+  "file": "WorkSansBold.ttf"
+ },
+ {
+  "name": "Nunito Bold",
+  "family": "Nunito",
+  "weight": 700,
+  "category": "Rounded",
+  "file": "NunitoBold.ttf"
+ },
+ {
+  "name": "Quicksand Bold",
+  "family": "Quicksand",
+  "weight": 700,
+  "category": "Rounded",
+  "file": "QuicksandBold.ttf"
+ },
+ {
+  "name": "Fredoka SemiBold",
+  "family": "Fredoka",
+  "weight": 600,
+  "category": "Rounded",
+  "file": "FredokaSemiBold.ttf"
+ },
+ {
+  "name": "Varela Round",
+  "family": "Varela Round",
+  "weight": 400,
+  "category": "Rounded",
+  "file": "VarelaRound.ttf"
+ },
+ {
+  "name": "Rubik Bold",
+  "family": "Rubik",
+  "weight": 700,
+  "category": "Rounded",
+  "file": "RubikBold.ttf"
+ },
+ {
+  "name": "Righteous",
+  "family": "Righteous",
+  "weight": 400,
+  "category": "Display",
+  "file": "Righteous.ttf"
+ },
+ {
+  "name": "Russo One",
+  "family": "Russo One",
+  "weight": 400,
+  "category": "Display",
+  "file": "RussoOne.ttf"
+ },
+ {
+  "name": "Teko SemiBold",
+  "family": "Teko",
+  "weight": 600,
+  "category": "Block",
+  "file": "TekoSemiBold.ttf"
+ },
+ {
+  "name": "Barlow Condensed Bold",
+  "family": "Barlow Condensed",
+  "weight": 700,
+  "category": "Block",
+  "file": "BarlowCondensedBold.ttf"
+ },
+ {
+  "name": "Josefin Sans Bold",
+  "family": "Josefin Sans",
+  "weight": 700,
+  "category": "Block",
+  "file": "JosefinSansBold.ttf"
+ },
+ {
+  "name": "Kanit Bold",
+  "family": "Kanit",
+  "weight": 700,
+  "category": "Block",
+  "file": "KanitBold.ttf"
+ },
+ {
+  "name": "Bungee",
+  "family": "Bungee",
+  "weight": 400,
+  "category": "Display",
+  "file": "Bungee.ttf"
+ },
+ {
+  "name": "Graduate",
+  "family": "Graduate",
+  "weight": 400,
+  "category": "Varsity",
+  "file": "Graduate.ttf"
+ },
+ {
+  "name": "Black Ops One",
+  "family": "Black Ops One",
+  "weight": 400,
+  "category": "Varsity",
+  "file": "BlackOpsOne.ttf"
+ },
+ {
+  "name": "Alfa Slab One",
+  "family": "Alfa Slab One",
+  "weight": 400,
+  "category": "Varsity",
+  "file": "AlfaSlabOne.ttf"
+ },
+ {
+  "name": "Bowlby One SC",
+  "family": "Bowlby One SC",
+  "weight": 400,
+  "category": "Varsity",
+  "file": "BowlbyOneSC.ttf"
+ },
+ {
+  "name": "Staatliches",
+  "family": "Staatliches",
+  "weight": 400,
+  "category": "Varsity",
+  "file": "Staatliches.ttf"
+ },
+ {
+  "name": "Playfair Display Bold",
+  "family": "Playfair Display",
+  "weight": 700,
+  "category": "Serif",
+  "file": "PlayfairDisplayBold.ttf"
+ },
+ {
+  "name": "Merriweather Bold",
+  "family": "Merriweather",
+  "weight": 700,
+  "category": "Serif",
+  "file": "MerriweatherBold.ttf"
+ },
+ {
+  "name": "Lora Bold",
+  "family": "Lora",
+  "weight": 700,
+  "category": "Serif",
+  "file": "LoraBold.ttf"
+ },
+ {
+  "name": "Cinzel Bold",
+  "family": "Cinzel",
+  "weight": 700,
+  "category": "Serif",
+  "file": "CinzelBold.ttf"
+ },
+ {
+  "name": "Abril Fatface",
+  "family": "Abril Fatface",
+  "weight": 400,
+  "category": "Serif",
+  "file": "AbrilFatface.ttf"
+ },
+ {
+  "name": "DM Serif Display",
+  "family": "DM Serif Display",
+  "weight": 400,
+  "category": "Serif",
+  "file": "DMSerifDisplay.ttf"
+ },
+ {
+  "name": "Roboto Slab Bold",
+  "family": "Roboto Slab",
+  "weight": 700,
+  "category": "Serif",
+  "file": "RobotoSlabBold.ttf"
+ },
+ {
+  "name": "Arvo Bold",
+  "family": "Arvo",
+  "weight": 700,
+  "category": "Serif",
+  "file": "ArvoBold.ttf"
+ },
+ {
+  "name": "Bitter Bold",
+  "family": "Bitter",
+  "weight": 700,
+  "category": "Serif",
+  "file": "BitterBold.ttf"
+ },
+ {
+  "name": "Zilla Slab Bold",
+  "family": "Zilla Slab",
+  "weight": 700,
+  "category": "Serif",
+  "file": "ZillaSlabBold.ttf"
+ },
+ {
+  "name": "Cormorant Garamond Bold",
+  "family": "Cormorant Garamond",
+  "weight": 700,
+  "category": "Serif",
+  "file": "CormorantGaramondBold.ttf"
+ },
+ {
+  "name": "Libre Baskerville Bold",
+  "family": "Libre Baskerville",
+  "weight": 700,
+  "category": "Serif",
+  "file": "LibreBaskervilleBold.ttf"
+ },
+ {
+  "name": "Rye",
+  "family": "Rye",
+  "weight": 400,
+  "category": "Western",
+  "file": "Rye.ttf"
+ },
+ {
+  "name": "Ultra",
+  "family": "Ultra",
+  "weight": 400,
+  "category": "Serif",
+  "file": "Ultra.ttf"
+ },
+ {
+  "name": "Old Standard TT Bold",
+  "family": "Old Standard TT",
+  "weight": 700,
+  "category": "Serif",
+  "file": "OldStandardTTBold.ttf"
+ },
+ {
+  "name": "Great Vibes",
+  "family": "Great Vibes",
+  "weight": 400,
+  "category": "Script",
+  "file": "GreatVibes.ttf"
+ },
+ {
+  "name": "Dancing Script Bold",
+  "family": "Dancing Script",
+  "weight": 700,
+  "category": "Script",
+  "file": "DancingScriptBold.ttf"
+ },
+ {
+  "name": "Pacifico",
+  "family": "Pacifico",
+  "weight": 400,
+  "category": "Script",
+  "file": "Pacifico.ttf"
+ },
+ {
+  "name": "Satisfy",
+  "family": "Satisfy",
+  "weight": 400,
+  "category": "Script",
+  "file": "Satisfy.ttf"
+ },
+ {
+  "name": "Sacramento",
+  "family": "Sacramento",
+  "weight": 400,
+  "category": "Script",
+  "file": "Sacramento.ttf"
+ },
+ {
+  "name": "Allura",
+  "family": "Allura",
+  "weight": 400,
+  "category": "Script",
+  "file": "Allura.ttf"
+ },
+ {
+  "name": "Alex Brush",
+  "family": "Alex Brush",
+  "weight": 400,
+  "category": "Script",
+  "file": "AlexBrush.ttf"
+ },
+ {
+  "name": "Parisienne",
+  "family": "Parisienne",
+  "weight": 400,
+  "category": "Script",
+  "file": "Parisienne.ttf"
+ },
+ {
+  "name": "Pinyon Script",
+  "family": "Pinyon Script",
+  "weight": 400,
+  "category": "Script",
+  "file": "PinyonScript.ttf"
+ },
+ {
+  "name": "Kaushan Script",
+  "family": "Kaushan Script",
+  "weight": 400,
+  "category": "Script",
+  "file": "KaushanScript.ttf"
+ },
+ {
+  "name": "Yellowtail",
+  "family": "Yellowtail",
+  "weight": 400,
+  "category": "Script",
+  "file": "Yellowtail.ttf"
+ },
+ {
+  "name": "Lobster",
+  "family": "Lobster",
+  "weight": 400,
+  "category": "Script",
+  "file": "Lobster.ttf"
+ },
+ {
+  "name": "Cookie",
+  "family": "Cookie",
+  "weight": 400,
+  "category": "Script",
+  "file": "Cookie.ttf"
+ },
+ {
+  "name": "Courgette",
+  "family": "Courgette",
+  "weight": 400,
+  "category": "Script",
+  "file": "Courgette.ttf"
+ },
+ {
+  "name": "Tangerine Bold",
+  "family": "Tangerine",
+  "weight": 700,
+  "category": "Script",
+  "file": "TangerineBold.ttf"
+ },
+ {
+  "name": "Italianno",
+  "family": "Italianno",
+  "weight": 400,
+  "category": "Script",
+  "file": "Italianno.ttf"
+ },
+ {
+  "name": "Marck Script",
+  "family": "Marck Script",
+  "weight": 400,
+  "category": "Script",
+  "file": "MarckScript.ttf"
+ },
+ {
+  "name": "Mr Dafoe",
+  "family": "Mr Dafoe",
+  "weight": 400,
+  "category": "Script",
+  "file": "MrDafoe.ttf"
+ },
+ {
+  "name": "Arizonia",
+  "family": "Arizonia",
+  "weight": 400,
+  "category": "Script",
+  "file": "Arizonia.ttf"
+ },
+ {
+  "name": "Petit Formal Script",
+  "family": "Petit Formal Script",
+  "weight": 400,
+  "category": "Script",
+  "file": "PetitFormalScript.ttf"
+ },
+ {
+  "name": "Clicker Script",
+  "family": "Clicker Script",
+  "weight": 400,
+  "category": "Script",
+  "file": "ClickerScript.ttf"
+ },
+ {
+  "name": "Norican",
+  "family": "Norican",
+  "weight": 400,
+  "category": "Script",
+  "file": "Norican.ttf"
+ },
+ {
+  "name": "Grand Hotel",
+  "family": "Grand Hotel",
+  "weight": 400,
+  "category": "Script",
+  "file": "GrandHotel.ttf"
+ },
+ {
+  "name": "Damion",
+  "family": "Damion",
+  "weight": 400,
+  "category": "Script",
+  "file": "Damion.ttf"
+ },
+ {
+  "name": "Rochester",
+  "family": "Rochester",
+  "weight": 400,
+  "category": "Script",
+  "file": "Rochester.ttf"
+ },
+ {
+  "name": "UnifrakturCook",
+  "family": "UnifrakturCook",
+  "weight": 700,
+  "category": "Blackletter",
+  "file": "UnifrakturCook.ttf"
+ },
+ {
+  "name": "UnifrakturMaguntia",
+  "family": "UnifrakturMaguntia",
+  "weight": 400,
+  "category": "Blackletter",
+  "file": "UnifrakturMaguntia.ttf"
+ },
+ {
+  "name": "Pirata One",
+  "family": "Pirata One",
+  "weight": 400,
+  "category": "Blackletter",
+  "file": "PirataOne.ttf"
+ },
+ {
+  "name": "Grenze Gotisch Bold",
+  "family": "Grenze Gotisch",
+  "weight": 700,
+  "category": "Blackletter",
+  "file": "GrenzeGotischBold.ttf"
+ },
+ {
+  "name": "Jacquard 24",
+  "family": "Jacquard 24",
+  "weight": 400,
+  "category": "Blackletter",
+  "file": "Jacquard24.ttf"
+ },
+ {
+  "name": "Permanent Marker",
+  "family": "Permanent Marker",
+  "weight": 400,
+  "category": "Handwritten",
+  "file": "PermanentMarker.ttf"
+ },
+ {
+  "name": "Caveat Bold",
+  "family": "Caveat",
+  "weight": 700,
+  "category": "Handwritten",
+  "file": "CaveatBold.ttf"
+ },
+ {
+  "name": "Amatic SC Bold",
+  "family": "Amatic SC",
+  "weight": 700,
+  "category": "Handwritten",
+  "file": "AmaticSCBold.ttf"
+ },
+ {
+  "name": "Patrick Hand",
+  "family": "Patrick Hand",
+  "weight": 400,
+  "category": "Handwritten",
+  "file": "PatrickHand.ttf"
+ },
+ {
+  "name": "Indie Flower",
+  "family": "Indie Flower",
+  "weight": 400,
+  "category": "Handwritten",
+  "file": "IndieFlower.ttf"
+ },
+ {
+  "name": "Shadows Into Light",
+  "family": "Shadows Into Light",
+  "weight": 400,
+  "category": "Handwritten",
+  "file": "ShadowsIntoLight.ttf"
+ },
+ {
+  "name": "Gloria Hallelujah",
+  "family": "Gloria Hallelujah",
+  "weight": 400,
+  "category": "Handwritten",
+  "file": "GloriaHallelujah.ttf"
+ },
+ {
+  "name": "Bangers",
+  "family": "Bangers",
+  "weight": 400,
+  "category": "Display",
+  "file": "Bangers.ttf"
+ },
+ {
+  "name": "Luckiest Guy",
+  "family": "Luckiest Guy",
+  "weight": 400,
+  "category": "Display",
+  "file": "LuckiestGuy.ttf"
+ },
+ {
+  "name": "Chewy",
+  "family": "Chewy",
+  "weight": 400,
+  "category": "Display",
+  "file": "Chewy.ttf"
+ },
+ {
+  "name": "Special Elite",
+  "family": "Special Elite",
+  "weight": 400,
+  "category": "Display",
+  "file": "SpecialElite.ttf"
+ }
+]

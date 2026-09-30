@@ -1,0 +1,229 @@
+{
+ "ags_garamond_latin_grec": {
+  "ok": false,
+  "why": [
+   "missing letters ABCDEFGHIJ"
+  ]
+ },
+ "alchemy": {
+  "ok": true,
+  "why": []
+ },
+ "allegria20": {
+  "ok": true,
+  "why": []
+ },
+ "allegria55": {
+  "ok": true,
+  "why": []
+ },
+ "ambigue": {
+  "ok": true,
+  "why": []
+ },
+ "amitaclo": {
+  "ok": false,
+  "why": [
+   "width 19.0 x cap (bad spacing/scale)",
+   "height 4.3 x cap (bad scale)"
+  ]
+ },
+ "apex_simple_AGS": {
+  "ok": true,
+  "why": []
+ },
+ "art_nouveau": {
+  "ok": false,
+  "why": [
+   "width 799.4 x cap (bad spacing/scale)",
+   "height 135.2 x cap (bad scale)"
+  ]
+ },
+ "auberge_marif": {
+  "ok": true,
+  "why": []
+ },
+ "aventurina": {
+  "ok": true,
+  "why": []
+ },
+ "barstitch_bold": {
+  "ok": true,
+  "why": []
+ },
+ "barstitch_regular": {
+  "ok": true,
+  "why": []
+ },
+ "bathaus_FI": {
+  "ok": true,
+  "why": []
+ },
+ "bluenesia_satin": {
+  "ok": true,
+  "why": []
+ },
+ "caesarus_SC_FI": {
+  "ok": true,
+  "why": []
+ },
+ "caffeine_KOR": {
+  "ok": true,
+  "why": []
+ },
+ "chicken_little": {
+  "ok": true,
+  "why": []
+ },
+ "chicken_scratch": {
+  "ok": true,
+  "why": []
+ },
+ "chopin": {
+  "ok": true,
+  "why": []
+ },
+ "dejavufont": {
+  "ok": false,
+  "why": [
+   "width 23.9 x cap (bad spacing/scale)"
+  ]
+ },
+ "digory_doodles_bean": {
+  "ok": true,
+  "why": []
+ },
+ "dinomouse72": {
+  "ok": false,
+  "why": [
+   "width 24.7 x cap (bad spacing/scale)"
+  ]
+ },
+ "emilio_20_simple": {
+  "ok": false,
+  "why": [
+   "width 2.3 x cap (bad spacing/scale)",
+   "height 0.2 x cap (bad scale)"
+  ]
+ },
+ "emilio_20_bold": {
+  "ok": true,
+  "why": []
+ },
+ "excalibur_KOR": {
+  "ok": true,
+  "why": []
+ },
+ "geneva_simple": {
+  "ok": true,
+  "why": []
+ },
+ "geneva_rounded": {
+  "ok": true,
+  "why": []
+ },
+ "gingo200": {
+  "ok": true,
+  "why": []
+ },
+ "inkstitch_masego": {
+  "ok": true,
+  "why": []
+ },
+ "medium_font": {
+  "ok": true,
+  "why": []
+ },
+ "small_font": {
+  "ok": true,
+  "why": []
+ },
+ "learning_curve": {
+  "ok": true,
+  "why": []
+ },
+ "magnolia_KOR": {
+  "ok": true,
+  "why": []
+ },
+ "mam_script": {
+  "ok": true,
+  "why": []
+ },
+ "manga_impact": {
+  "ok": false,
+  "why": [
+   "width 33.6 x cap (bad spacing/scale)",
+   "height 3.3 x cap (bad scale)"
+  ]
+ },
+ "marifenda": {
+  "ok": true,
+  "why": []
+ },
+ "milli_marif_bold": {
+  "ok": false,
+  "why": [
+   "width 2.6 x cap (bad spacing/scale)",
+   "height 0.4 x cap (bad scale)"
+  ]
+ },
+ "monicha": {
+  "ok": true,
+  "why": []
+ },
+ "montecarlo": {
+  "ok": true,
+  "why": []
+ },
+ "neon": {
+  "ok": true,
+  "why": []
+ },
+ "pacificlo": {
+  "ok": true,
+  "why": []
+ },
+ "pixel10": {
+  "ok": false,
+  "why": [
+   "slow 7.8s"
+  ]
+ },
+ "roaring_twenties_KOR": {
+  "ok": true,
+  "why": []
+ },
+ "roman_ags": {
+  "ok": true,
+  "why": []
+ },
+ "sacramarif": {
+  "ok": true,
+  "why": []
+ },
+ "stebor_AGS": {
+  "ok": true,
+  "why": []
+ },
+ "tt_directors": {
+  "ok": true,
+  "why": []
+ },
+ "tt_masters": {
+  "ok": true,
+  "why": []
+ },
+ "venezia": {
+  "ok": true,
+  "why": []
+ },
+ "violin_serif": {
+  "ok": true,
+  "why": []
+ },
+ "cyrillic": {
+  "ok": true,
+  "why": []
+ }
+}

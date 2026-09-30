@@ -1,0 +1,616 @@
+"""Layout (JSON-able dict) -> stitch blocks -> pyembroidery pattern, preview and stats.
+
+Layout:
+{
+  "hoop": [100, 100], "fabric": "knit", "group_colors": true,
+  "elements": [
+    {"type": "text", "text": "LIMITED", "font": "Montserrat Black", "height_mm": 14, "color": "#a0703c",
+     "letter_spacing": 0.05, "arc": 0, "style": "auto", "outline": {"color": "#5a3a1a", "width_mm": 1.0},
+     "x": 0, "y": -10, "rotation": 0},
+    {"type": "shape", "kind": "heart", "width_mm": 8, "height_mm": 7, "color": "#d0202a", "x": 0, "y": -30},
+    {"type": "image", "image_id": "abc", "width_mm": 90, "colors": [{"rgb": [..], "keep": true, "thread": "#..", "style": "auto"}], "x": 0, "y": 0}
+  ]
+}
+x/y are the element centre in mm relative to the hoop centre (y down).
+"""
+import hashlib, io, json, math, os
+import numpy as np
+import cv2
+from PIL import Image, ImageDraw
+import pyembroidery as pe
+from pyembroidery.EmbThreadShv import get_thread_set
+
+from .params import RES, params_for
+from . import raster, stitchgen as sg, embfont
+
+IMAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output", "uploads")
+_cache = {}
+
+
+# ----------------------------------------------------------------------------- threads
+
+def hex_to_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(c):
+    return "#%02x%02x%02x" % tuple(int(v) for v in c[:3])
+
+
+_shv = None
+
+
+def shv_thread(hexcolor):
+    """Nearest thread in the Designer I's built-in palette (what the machine will display)."""
+    global _shv
+    if _shv is None:
+        _shv = [(t.description, ((t.color >> 16) & 255, (t.color >> 8) & 255, t.color & 255)) for t in get_thread_set()]
+    rgb = hex_to_rgb(hexcolor)
+    name, c = min(_shv, key=lambda t: sum((a - b) ** 2 for a, b in zip(rgb, t[1])))
+    return name
+
+
+# ----------------------------------------------------------------------------- shapes
+
+def shape_mask(kind, w_mm, h_mm, stroke_mm=1.2):
+    W, H = max(2, int(round(w_mm * RES))), max(2, int(round(h_mm * RES)))
+    ss = 3
+    im = Image.new("L", (W * ss + 8 * ss, H * ss + 8 * ss))
+    d = ImageDraw.Draw(im)
+    o = 4 * ss
+    Ws, Hs = W * ss, H * ss
+    sw = max(1, int(round(stroke_mm * RES * ss)))
+    if kind == "circle":
+        d.ellipse([o, o, o + Ws, o + Hs], fill=255)
+    elif kind == "ring":
+        d.ellipse([o, o, o + Ws, o + Hs], outline=255, width=sw)
+    elif kind == "rect":
+        d.rectangle([o, o, o + Ws, o + Hs], fill=255)
+    elif kind == "frame":
+        d.rectangle([o, o, o + Ws, o + Hs], outline=255, width=sw)
+    elif kind == "double_frame":
+        g = sw * 2
+        d.rectangle([o, o, o + Ws, o + Hs], outline=255, width=sw)
+        d.rectangle([o + g + sw, o + g + sw, o + Ws - g - sw, o + Hs - g - sw], outline=255, width=sw)
+    elif kind == "offset_frame":  # two overlapping frames, like the "LIMITED edition" box
+        g = int(min(Ws, Hs) * 0.08)
+        d.rectangle([o, o, o + Ws - g, o + Hs - g], outline=255, width=sw)
+        d.rectangle([o + g, o + g, o + Ws, o + Hs], outline=255, width=sw)
+    elif kind == "line":
+        d.rectangle([o, o + Hs // 2 - sw // 2, o + Ws, o + Hs // 2 + sw // 2], fill=255)
+    elif kind == "star":
+        cx, cy, R = o + Ws / 2, o + Hs / 2, min(Ws, Hs) / 2
+        pts = [(cx + (R if i % 2 == 0 else R * 0.45) * math.sin(i * math.pi / 5),
+                cy - (R if i % 2 == 0 else R * 0.45) * math.cos(i * math.pi / 5)) for i in range(10)]
+        d.polygon(pts, fill=255)
+    else:  # heart
+        t = np.linspace(0, 2 * math.pi, 200)
+        x = 16 * np.sin(t) ** 3
+        y = -(13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t))
+        x = (x - x.min()) / (x.max() - x.min()) * Ws + o
+        y = (y - y.min()) / (y.max() - y.min()) * Hs + o
+        d.polygon(list(zip(x, y)), fill=255)
+    small = im.resize((im.width // ss, im.height // ss), Image.LANCZOS)
+    m, _ = raster.crop(np.asarray(small) > 110)
+    return m
+
+
+# ----------------------------------------------------------------------------- element -> layers
+
+def element_layers(el):
+    """[(hex colour, mask, (ox_px, oy_px), style)] in a shared local pixel frame."""
+    t = el.get("type")
+    style = el.get("style", "auto")
+    if t == "text":
+        args = (el.get("text", "") or " ", el.get("font", "Montserrat Bold"), float(el.get("height_mm", 10)),
+                float(el.get("letter_spacing", 0.0)), float(el.get("line_spacing", 1.25)),
+                el.get("align", "center"), float(el.get("arc", 0)))
+        if not _has_letter_colors(el):
+            m, _ = raster.text_mask(*args)
+            return _with_outline(el, m, style)
+        m, _, lab = raster.text_mask(*args, labels=True)
+        layers = []
+        for color, idxs in _color_groups(el):
+            sub = m & np.isin(lab, [i + 1 for i in idxs])
+            if sub.any():
+                layers.append((color, sub, (0, 0), style))
+        return _with_outline(el, m, style, layers)
+    if t == "shape":
+        m = shape_mask(el.get("kind", "heart"), float(el.get("width_mm", 20)), float(el.get("height_mm", 20)),
+                       float(el.get("stroke_mm", 1.2)))
+        return _with_outline(el, m, style)
+    if t == "vector":
+        return vector_layers(el)
+    if t == "image":
+        im = raster.load_image(os.path.join(IMAGE_DIR, el["image_id"]))
+        cols = el.get("colors") or []
+        pal = [tuple(c["rgb"]) for c in cols] or None
+        pal, masks, _, labels = raster.image_masks(im, float(el.get("width_mm", 80)), pal)
+        bg = raster.background_index(labels)
+        out = []
+        for i, m in enumerate(masks):
+            c = cols[i] if i < len(cols) else {"keep": i != bg}  # background is off by default
+            if c.get("keep", True) and m.any():
+                out.append((c.get("thread") or rgb_to_hex(pal[i]), m, (0, 0), c.get("style", "auto")))
+        return out
+    return []
+
+
+# border sewn under the letters: the letters' pull compensation spreads ~0.3-0.4 mm over it,
+# so move it out by that much to keep the same visible width
+FIRST_SHIFT = 0.4
+
+
+def split_vector(el, by_color=False):
+    """A drawing -> one drawing per object. Parts that touch belong together (bulbs on their wire,
+    snow caps on their mountain); a line merely crossing a filled shape doesn't join them."""
+    from shapely.geometry import Polygon, LineString, Point
+    parts = el.get("parts", [])
+    w = float(el.get("width_mm", 40))
+    asp = float(el.get("aspect", 0.5))
+    geoms = []
+    for p in parts:
+        pts = p.get("points", [])
+        try:
+            if p["type"] == "polygon" and len(pts) >= 3:
+                g = Polygon(pts).buffer(0)
+            elif p["type"] == "polyline" and len(pts) >= 2:
+                g = LineString(pts).buffer(max(float(p.get("stroke") or 0), 0.004))
+            elif p["type"] == "circle" and pts:
+                g = Point(pts[0]).buffer(max(float(p.get("r") or 0), 0.004))
+            else:
+                g = None
+        except Exception:
+            g = None
+        geoms.append(g)
+    n = len(parts)
+    root = list(range(n))
+    def find(i):
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = root[i]
+        return i
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = geoms[i], geoms[j]
+            if gi is None or gj is None:
+                continue
+            kinds = {parts[i]["type"], parts[j]["type"]}
+            if kinds == {"polygon", "polyline"}:
+                continue  # a wire running over a mountain is still two objects
+            if gi.buffer(0.003).intersects(gj):
+                root[find(i)] = find(j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    if len(groups) < 2:
+        if not by_color:
+            return [el]
+        # one connected object: split it by thread colour instead (mountain / snow caps)
+        groups = {}
+        for i, p in enumerate(parts):
+            groups.setdefault((p.get("color") or "").lower(), []).append(i)
+        if len(groups) < 2:
+            return [el]
+    rot = math.radians(float(el.get("rotation", 0)))
+    out = []
+    for idx in sorted(groups.values(), key=lambda g: g[0]):
+        sub = [parts[i] for i in idx]
+        us, vs = [], []
+        for p in sub:
+            grow = max(float(p.get("r") or 0), float(p.get("stroke") or 0) / 2)
+            for u, v in p.get("points", []):
+                us += [u - grow, u + grow]
+                vs += [v - grow, v + grow]
+        u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+        bw = max(u1 - u0, 1e-3)
+        new = []
+        for p in sub:
+            q = dict(p, points=[[round((u - u0) / bw, 4), round((v - v0) / bw, 4)] for u, v in p["points"]])
+            q["r"] = round(float(p.get("r") or 0) / bw, 4)
+            q["stroke"] = round(float(p.get("stroke") or 0) / bw, 4)
+            new.append(q)
+        # new centre, in the (possibly turned) element's frame
+        dx, dy = ((u0 + u1) / 2 - 0.5) * w, ((v0 + v1) / 2 - asp / 2) * w
+        cx = float(el.get("x", 0)) + dx * math.cos(rot) - dy * math.sin(rot)
+        cy = float(el.get("y", 0)) + dx * math.sin(rot) + dy * math.cos(rot)
+        kinds = {p["type"] for p in sub}
+        name = "Lights" if "circle" in kinds and len(sub) > 2 else "Line" if kinds == {"polyline"} else "Shapes"
+        if len({(p.get("color") or "").lower() for p in sub}) == 1 and len(groups) > 1 and by_color:
+            name = "%s (%s)" % (el.get("name") or "Drawing", shv_thread(sub[0].get("color") or "#333333"))
+        out.append(dict(type="vector", name=name, parts=new, width_mm=round(bw * w, 1),
+                        aspect=round((v1 - v0) / bw, 4), x=round(cx, 1), y=round(cy, 1), rotation=el.get("rotation", 0)))
+    return out
+
+
+def vector_layers(el):
+    """Flat geometry (polygons, lines, dots) -> one mask per thread colour, in sewing order.
+    Later colours sit on top; the parts underneath are knocked out there (with 0.4 mm overlap) so
+    thread doesn't pile up - the way digitizers layer logo artwork."""
+    w = float(el.get("width_mm", 40))
+    asp = float(el.get("aspect", 0.5))
+    # frame: the element box, grown evenly on each side to hold any part that pokes out
+    # (kept symmetric so the element's centre stays the box centre)
+    ext_u, ext_v = 0.0, 0.0
+    for part in el.get("parts", []):
+        grow = max(float(part.get("r") or 0), float(part.get("stroke") or 0))
+        for u, v in part.get("points", []):
+            ext_u = max(ext_u, -(u - grow), u + grow - 1)
+            ext_v = max(ext_v, -(v - grow), v + grow - asp)
+    pu, pv = ext_u * w + 2.0, ext_v * w + 2.0
+    Wp, Hp = int(math.ceil((w + 2 * pu) * RES)), int(math.ceil((w * asp + 2 * pv) * RES))
+    to_px = lambda u, v: (int(round((u * w + pu) * RES)), int(round((v * w + pv) * RES)))
+    lines = {}  # thin strings/lines: sewn as a triple running stitch, not a satin cord
+    order, masks = [], {}
+    for part in el.get("parts", []):
+        c = (part.get("color") or "#333333").lower()
+        if c not in masks:
+            masks[c] = np.zeros((Hp, Wp), np.uint8)
+            order.append(c)
+        m = masks[c]
+        pts = np.array([to_px(u, v) for u, v in part.get("points", [])], np.int32)
+        if not len(pts):
+            continue
+        if part.get("type") == "polygon" and len(pts) >= 3:
+            cv2.fillPoly(m, [pts], 1)
+        elif part.get("type") == "polyline" and len(pts) >= 2:
+            sw = float(part.get("stroke") or 0) * w
+            if sw < 0.9:
+                lines.setdefault(c, []).append(pts)
+                continue
+            cv2.polylines(m, [pts], False, 1, int(round(sw * RES)), lineType=cv2.LINE_8)
+        elif part.get("type") == "circle":
+            r = max(int(round(0.6 * RES)), int(round(float(part.get("r") or 0) * w * RES)))
+            cv2.circle(m, tuple(int(v) for v in pts[0]), r, 1, -1)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(0.4 * RES) + 1,) * 2)
+    layers = []
+    for i, c in enumerate(order):
+        m = masks[c].astype(bool)
+        for c2 in order[i + 1:]:  # knock out what a later colour covers, keeping a small overlap
+            m &= ~cv2.erode(masks[c2], k).astype(bool)
+        if m.any():
+            layers.append((c, m, (0, 0), "auto"))
+        if c in lines:
+            lm = np.zeros((Hp, Wp), np.uint8)
+            for pts in lines[c]:
+                cv2.polylines(lm, [pts], False, 1, max(1, int(0.3 * RES)), lineType=cv2.LINE_8)
+            layers.append((c, lm.astype(bool), (0, 0), "run"))
+    return layers
+
+
+def _has_letter_colors(el):
+    lc = el.get("letter_colors") or []
+    return any(c and c.lower() != el.get("color", "#222222").lower() for c in lc)
+
+
+def _color_groups(el):
+    """[(hex, [char indices])] for per-letter colours, in order of first appearance
+    (the main thread first, so each colour is sewn once)."""
+    text, lc, base = el.get("text", ""), el.get("letter_colors") or [], el.get("color", "#222222")
+    groups = {base.lower(): (base, [])}
+    for i, ch in enumerate(text):
+        c = (lc[i] if i < len(lc) else None) or base
+        groups.setdefault(c.lower(), (c, []))[1].append(i)
+    return [g for g in groups.values() if g[1]]
+
+
+def _with_outline(el, m, style, layers=None):
+    """Main layer(s) plus an optional satin border (sewn after, overlapping the edge by 0.3 mm)."""
+    layers = layers or [(el.get("color", "#222222"), m, (0, 0), style)]
+    ol = el.get("outline") or {}
+    w = float(ol.get("width_mm") or 0)
+    if w <= 0:
+        return layers
+    pad = int(round((w + 1.5) * RES)) + 2
+    main = [(c, lm, (pad, pad), st) for c, lm, _, st in layers]
+    first = bool(ol.get("first"))
+    gap = float(ol.get("gap_mm", -0.3)) + (FIRST_SHIFT if first else 0.0)
+    border = [(ol.get("color", "#000000"), np.pad(m, pad), (0, 0),
+               "border:%g:%g%s" % (w, gap, ":first" if first else ""))]
+    # sewn first: the letters go on top and hide the border's hops between rings
+    return border + main if first else main + border
+
+
+def layer_objects(mask, style, P, entry=None):
+    """Stitch every connected piece of a single-colour mask; nearest-neighbour order.
+    Returns (objects [[(x,y) mm, ...], ...], kinds)."""
+    if style and style.startswith("border"):
+        _, w, gap, *flags = style.split(":")
+        objs = sg.border_shape(mask, float(w), float(gap), P, entry)
+        if "first" in flags:
+            objs = sg.join_hidden([o for o in objs if o], mask, P)
+        return [o for o in objs if o], ["border"] * len([o for o in objs if o])
+    n, lab, stats, cents = cv2.connectedComponentsWithStats(mask.astype(np.uint8), 8)
+    comps = []
+    for j in range(1, n):
+        if stats[j, cv2.CC_STAT_AREA] < 4:
+            continue
+        x, y, w, h = stats[j, :4]
+        sub = lab[y:y + h, x:x + w] == j
+        sub = np.pad(sub, 2)
+        comps.append((sub, (x - 2, y - 2), cents[j] / RES))
+    objects, kinds = [], []
+    cur = entry
+    while comps:
+        k = 0 if cur is None else min(range(len(comps)), key=lambda i: np.hypot(*(comps[i][2] - cur)))
+        sub, (ox, oy), c = comps.pop(k)
+        kind = sg.classify(sub, P) if style in (None, "", "auto") else style
+        local_entry = None if cur is None else (cur[0] - ox / RES, cur[1] - oy / RES)
+        if kind == "satin":
+            objs = sg.satin_shape(sub, P, local_entry)
+        elif kind == "run":
+            objs = sg.run_shape(sub, P, local_entry)
+        elif kind == "satinfill":
+            objs = []
+            for poly in sg.mask_to_polygons(sub):
+                objs += sg.satin_fill(poly, P, start=local_entry)
+        else:
+            objs = []
+            for poly in sg.mask_to_polygons(sub, crisp=True):
+                objs += sg.fill_shape(poly, P, start=local_entry)
+        for o in objs:
+            if o:
+                objects.append([(p[0] + ox / RES, p[1] + oy / RES) for p in o])
+                kinds.append(kind)
+        if objects:
+            cur = np.array(objects[-1][-1])
+    return objects, kinds
+
+
+def element_blocks(el, P, fabric, progress=None):
+    """Cached per element (position/rotation excluded). -> (blocks, (w_mm, h_mm))
+    blocks: [{color, objects, kinds}] in element-local mm centred on (0,0)."""
+    key_el = {k: v for k, v in el.items() if k not in ("x", "y", "rotation", "id", "name")}
+    key = hashlib.sha1(json.dumps([key_el, fabric], sort_keys=True).encode()).hexdigest()
+    if key in _cache:
+        return _cache[key]
+    fam = embfont.family(el.get("font")) if el.get("type") == "text" else None
+    if fam:
+        res = _emb_text_blocks(el, fam, P)
+        if len(_cache) > 200:
+            _cache.clear()
+        _cache[key] = res
+        return res
+    layers = element_layers(el)
+    if not layers:
+        return [], (0, 0)
+    W = max(m.shape[1] + ox for _, m, (ox, oy), _ in layers)
+    H = max(m.shape[0] + oy for _, m, (ox, oy), _ in layers)
+    cx, cy = W / 2 / RES, H / 2 / RES
+    blocks = []
+    entry = None
+    for li, (color, m, (ox, oy), style) in enumerate(layers):
+        if progress:
+            progress(li / len(layers), "Stitching color %d of %d" % (li + 1, len(layers)))
+        objs, kinds = layer_objects(m, style, P, entry)
+        objs = [[(x + ox / RES - cx, y + oy / RES - cy) for x, y in o] for o in objs]
+        if objs:
+            blocks.append(dict(color=color, objects=objs, kinds=kinds))
+            entry = np.array(objs[-1][-1]) + (cx - ox / RES, cy - oy / RES)
+    res = (blocks, (W / RES, H / RES))
+    if len(_cache) > 200:
+        _cache.clear()
+    _cache[key] = res
+    return res
+
+
+def _emb_text_blocks(el, fam, P):
+    """Text in a hand-digitized embroidery font: the font's own satin columns, stitch
+    directions and sewing order, sewn with our fabric settings; optional satin border."""
+    density = P.satin_spacing / 0.40  # fabric + density choice relative to the 0.4 mm standard
+    objs, kinds, (w, h), f, missing, shapes, owners = embfont.layout_text(el, fam, P, density, with_owner=True)
+    if not objs:
+        return [], (0, 0)
+    if _has_letter_colors(el):
+        blocks = []
+        for color, idxs in _color_groups(el):
+            keep = set(idxs)
+            sel = [k for k, ow in enumerate(owners) if ow in keep]
+            if sel:
+                blocks.append(dict(color=color, objects=[objs[k] for k in sel], kinds=[kinds[k] for k in sel]))
+    else:
+        blocks = [dict(color=el.get("color", "#222222"), objects=objs, kinds=kinds)]
+    ol = el.get("outline") or {}
+    bw = float(ol.get("width_mm") or 0)
+    if bw > 0:
+        gap = float(ol.get("gap_mm", -0.3))
+        m, (x0, y0) = embfont.outline_mask(shapes, bw + 1.5, RES)
+        # close the counters between letters so the border hugs the word, like the TTF path does
+        first = bool(ol.get("first"))
+        if first:
+            gap += FIRST_SHIFT
+        border = sg.border_shape(m, bw, gap, P, None if first else np.array(objs[-1][-1]) - (x0, y0))
+        if first:
+            border = sg.join_hidden([o for o in border if o], m, P)
+        border = [[(x + x0, y + y0) for x, y in o] for o in border if o]
+        if border:
+            bb = dict(color=ol.get("color", "#000000"), objects=border, kinds=["border"] * len(border))
+            if first:
+                blocks.insert(0, bb)
+            else:
+                blocks.append(bb)
+            pts = np.array([p for o in border for p in o])
+            w = max(w, float(np.ptp(pts[:, 0])))
+            h = max(h, float(np.ptp(pts[:, 1])))
+    return blocks, (w, h)
+
+
+# ----------------------------------------------------------------------------- whole design
+
+def stitch_key(layout):
+    """Everything besides the element itself that changes its stitches (cache key part)."""
+    return "%s|%s" % (layout.get("fabric", "knit"), layout.get("density", "standard"))
+
+
+def build(layout, progress=None):
+    """progress(fraction 0-1, message) is called as elements are stitched (for the busy badge)."""
+    P = params_for(layout.get("fabric", "knit"), layout.get("density", "standard"))
+    all_blocks, boxes = [], []
+    els = layout.get("elements", [])
+    for idx, el in enumerate(els):
+        if el.get("hidden"):
+            continue
+        sub = None
+        if progress:
+            label = (el.get("text") or el.get("name") or el.get("kind") or el.get("type") or "").replace("\n", " ")[:24]
+            sub = lambda f, msg, idx=idx, label=label: progress((idx + f) / max(1, len(els)), "%s: %s" % (label, msg) if label else msg)
+            sub(0, "starting")
+        blocks, (w, h) = element_blocks(el, P, stitch_key(layout), sub)
+        x0, y0 = float(el.get("x", 0)), float(el.get("y", 0))
+        rot = math.radians(float(el.get("rotation", 0)))
+        c, s = math.cos(rot), math.sin(rot)
+        for b in blocks:
+            objs = [[(x0 + px * c - py * s, y0 + px * s + py * c) for px, py in o] for o in b["objects"]]
+            all_blocks.append(dict(color=b["color"], objects=objs, kinds=b["kinds"], element=idx))
+        boxes.append(dict(index=idx, id=el.get("id"), x=x0, y=y0, w=w, h=h, rotation=float(el.get("rotation", 0))))
+    if layout.get("group_colors", True):
+        first = {}
+        for b in all_blocks:
+            first.setdefault(b["color"].lower(), len(first))
+        all_blocks.sort(key=lambda b: first[b["color"].lower()])
+    merged = []
+    for b in all_blocks:
+        if merged and merged[-1]["color"].lower() == b["color"].lower():
+            merged[-1]["objects"] += b["objects"]
+            merged[-1]["kinds"] += b["kinds"]
+        else:
+            merged.append(dict(b))
+    return merged, boxes, P
+
+
+def _tie(o, P):
+    """Lock stitches at both ends so nothing unravels after trims."""
+    if len(o) < 2:
+        return o
+    def toward(a, b, L):
+        d = math.hypot(b[0] - a[0], b[1] - a[1]) or 1
+        return (a[0] + (b[0] - a[0]) / d * L, a[1] + (b[1] - a[1]) / d * L)
+    a, b = o[0], o[1]
+    y, z = o[-1], o[-2]
+    t = P.tie_length
+    return [a, toward(a, b, t), a] + o[1:-1] + [y, toward(y, z, t), y]
+
+
+def to_pattern(blocks, P):
+    pat = pe.EmbPattern()
+    first_block = True
+    for b in blocks:
+        th = pe.EmbThread()
+        th.set_hex_color(b["color"])
+        th.description = shv_thread(b["color"])
+        pat.add_thread(th)
+        if not first_block:
+            pat.add_command(pe.COLOR_CHANGE)
+        first_block = False
+        for i, o in enumerate(b["objects"]):
+            o = _tie(list(o), P)
+            if pat.stitches:
+                pat.add_command(pe.TRIM)
+            pat.add_stitch_absolute(pe.JUMP, o[0][0] * 10, o[0][1] * 10)
+            for x, y in o:
+                pat.add_stitch_absolute(pe.STITCH, x * 10, y * 10)
+    pat.add_command(pe.END)
+    return pat
+
+
+def thread_length_m(objects, per_stitch_mm=0.5):
+    """Estimated top thread (metres) for sewn objects: the needle path plus ~0.5 mm per stitch
+    for the loop down into the fabric; jumps between objects are trimmed and not counted.
+    Bobbin use is roughly a third of this (the usual rule of thumb for satin and fill)."""
+    total = 0.0
+    for o in objects:
+        if len(o) > 1:
+            a = np.asarray(o, float)
+            total += float(np.hypot(*np.diff(a, axis=0).T).sum()) + per_stitch_mm * len(o)
+    return total / 1000.0
+
+
+def off_hoop(blocks, hoop, tol=0.05):
+    """True if any needle point lands outside the hoop's sewing field (origin = hoop centre)."""
+    hw, hh = hoop[0] / 2 + tol, hoop[1] / 2 + tol
+    return any(abs(x) > hw or abs(y) > hh for b in blocks for o in b["objects"] for x, y in o)
+
+
+def stats(blocks, layout, pattern):
+    hoop = layout.get("hoop", [100, 100])
+    pts = [p for b in blocks for o in b["objects"] for p in o]
+    warnings = []
+    if not pts:
+        return dict(stitches=0, colors=[], size=[0, 0], minutes=0, jumps=0, warnings=["Add some text, a shape or an image."])
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    size = [max(xs) - min(xs), max(ys) - min(ys)]
+    outside = off_hoop(blocks, hoop)
+    over = {}
+    if outside:
+        # how far past each edge, so the message says what to do
+        for side, v in (("left", -min(xs) - hoop[0] / 2), ("right", max(xs) - hoop[0] / 2),
+                        ("top", -min(ys) - hoop[1] / 2), ("bottom", max(ys) - hoop[1] / 2)):
+            if v > 0.05:
+                over[side] = round(float(v), 1)
+        warnings.append("Off the %gx%g mm hoop by %s. Move or shrink it before saving." % (
+            hoop[0], hoop[1], ", ".join("%.1f mm on the %s" % (v, k) for k, v in over.items())))
+    for el in layout.get("elements", []):
+        if el.get("type") == "text" and float(el.get("height_mm", 10)) < 5 and not embfont.family(el.get("font")):
+            warnings.append('"%s" is %.1f mm tall - lettering under 5 mm may not stitch cleanly.'
+                            % (el.get("text", "")[:20], float(el.get("height_mm"))))
+        fam = embfont.family(el.get("font")) if el.get("type") == "text" else None
+        if fam:
+            lo, hi = embfont.size_range(fam)
+            hmm = float(el.get("height_mm", 10))
+            if hmm < lo * 0.95 or hmm > hi * 1.05:
+                warnings.append("%s is digitized for %.0f-%.0f mm letters; at %.1f mm it may sew poorly. Pick another font or resize."
+                                % (fam["name"].lstrip("✦ "), lo, hi, hmm))
+    counts = [sum(1 for _ in o) + 6 for b in blocks for o in [sum(b["objects"], [])]]
+    total = sum(1 for s in pattern.stitches if s[2] == pe.STITCH)
+    jumps = sum(len(b["objects"]) for b in blocks) - len(blocks)
+    colors = [dict(hex=b["color"], thread=shv_thread(b["color"]), stitches=sum(len(o) + 4 for o in b["objects"]),
+                   kinds=sorted(set(b["kinds"])), thread_m=round(thread_length_m(b["objects"]), 1)) for b in blocks]
+    top_m = sum(c["thread_m"] for c in colors)
+    minutes = total / 450 + 0.75 * max(0, len(blocks) - 1) + 0.15 * jumps
+    return dict(stitches=int(total), colors=colors, size=[round(float(size[0]), 1), round(float(size[1]), 1)],
+                minutes=round(minutes, 1), jumps=jumps, warnings=warnings, outside=outside, over=over,
+                thread_m=round(top_m, 1), bobbin_m=round(top_m / 3, 1))
+
+
+# ----------------------------------------------------------------------------- preview
+
+def render_preview(blocks, hoop, scale=8, ss=2):
+    """Transparent PNG of the stitches (thread-like shading), hoop field centred."""
+    W, H = int(hoop[0] * scale), int(hoop[1] * scale)
+    k = scale * ss
+    im = Image.new("RGBA", (W * ss, H * ss), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    ox, oy = W * ss / 2, H * ss / 2
+    tw = max(1, int(0.44 * k))
+    for b in blocks:
+        r, g, bl = hex_to_rgb(b["color"])
+        dark = (int(r * 0.72), int(g * 0.72), int(bl * 0.72), 255)
+        mid = (r, g, bl, 255)
+        lite = (min(255, int(r + (255 - r) * 0.45)), min(255, int(g + (255 - g) * 0.45)), min(255, int(bl + (255 - bl) * 0.45)), 255)
+        hl = max(1, tw // 3)
+        off = 0.1 * k
+        for o in b["objects"]:
+            pts = [(ox + x * k, oy + y * k) for x, y in o]
+            # draw stitch by stitch in sewing order so later stitches cover earlier ones
+            for p, q in zip(pts, pts[1:]):
+                d.line([p, q], fill=dark, width=tw + max(1, tw // 6))
+                d.line([p, q], fill=mid, width=tw)
+                d.line([(p[0] - off, p[1] - off), (q[0] - off, q[1] - off)], fill=lite, width=hl)
+    im = im.resize((W, H), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+# ----------------------------------------------------------------------------- export
+
+FORMATS = {"vp3": "Husqvarna Viking / Pfaff (.vp3)", "pes": "Brother / Baby Lock (.pes)", "dst": "Tajima (.dst)",
+           "jef": "Janome (.jef)", "exp": "Melco / Bernina (.exp)",
+           "zip": "Designer I floppy on another PC (.zip, unzip onto the floppy)",
+           "shv": "Single .shv (for other software; the machine won't find it alone)"}
+
+
+def export(pattern, fmt, path):
+    pe.write(pattern, path) if fmt != "dst" else pe.write_dst(pattern, path)
+    return path
