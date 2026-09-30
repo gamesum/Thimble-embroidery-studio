@@ -5,6 +5,26 @@
 const DEFAULT_LAYOUT = () => ({
   name: "My design", hoop: [100, 100], fabric: "knit", group_colors: true, fabric_color: "#d9d5cc", elements: [],
 });
+// display units: everything is stored in mm; inches are a view (per-viewer preference)
+let UNITS = "mm";
+try { UNITS = localStorage.getItem("thimble.units") === "in" ? "in" : "mm"; } catch (e) {}
+const U = {
+  get inch() { return UNITS === "in"; },
+  get u() { return UNITS === "in" ? "in" : "mm"; },
+  show(mm) { return UNITS === "in" ? Math.round((mm / 25.4) * 100) / 100 : Math.round(mm * 10) / 10; },
+  toMm(v) { return UNITS === "in" ? v * 25.4 : v; },
+  len(mm) { return `${U.show(mm)} ${U.u}`; },
+  lab(s) { return UNITS === "in" ? s.replace(/\bmm\b/g, "in") : s; },
+  thread(m) { return UNITS === "in" ? `${Math.round(m * 1.0936 * 10) / 10} yd` : `${m} m`; },
+  step(stepMm) { return UNITS === "in" ? Math.max(0.01, Math.round((stepMm / 25.4) * 100) / 100) : stepMm; },
+};
+function setUnits(u) {
+  UNITS = u === "in" ? "in" : "mm";
+  try { localStorage.setItem("thimble.units", UNITS); } catch (e) {}
+  const t = $("#unitsToggle"); if (t) t.textContent = UNITS;
+  renderProps(); renderChart(); draw();
+}
+
 const S = {
   pan: { x: 0, y: 0 }, // screen px the view is slid by (middle-mouse drag, like a slicer)
   layout: DEFAULT_LAYOUT(), sel: -1, built: null, meta: null, fonts: [], zoom: 1, pan: { x: 0, y: 0 },
@@ -354,9 +374,10 @@ function field(label, inner, value = "") {
   return `<div class="field"><div class="lbl"><span>${label}</span>${value !== "" ? `<output>${value}</output>` : ""}</div>${inner}</div>`;
 }
 function rangeField(id, label, min, max, step, val, unit = "") {
-  return field(label, `<div class="row"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}">
-    <input type="number" id="${id}-n" min="${min}" max="${max}" step="${step}" value="${val}" style="max-width:74px"></div>`) +
-    (unit ? "" : "");
+  const len = unit === "len", d = len ? ' data-len="1"' : "";
+  if (len) { label = U.lab(label); min = U.show(min); max = U.show(max); step = U.step(step); val = U.show(val); }
+  return field(label, `<div class="row"><input type="range" id="${id}"${d} min="${min}" max="${max}" step="${step}" value="${val}">
+    <input type="number" id="${id}-n"${d} min="${min}" max="${max}" step="${step}" value="${val}" style="max-width:74px"></div>`);
 }
 function threadField(id, label, color, open = false) {
   const sw = (S.meta?.threads || []).map((t) =>
@@ -387,7 +408,7 @@ function selectField(id, label, opts, val) {
   return field(label, `<select id="${id}">${opts.map(([v, t]) => `<option value="${v}"${v === val ? " selected" : ""}>${t}</option>`).join("")}</select>`);
 }
 function posFields(el) {
-  return `<div class="two">${field("Across (mm)", `<input type="number" id="p-x" step="0.5" value="${el.x}">`)}${field("Down (mm)", `<input type="number" id="p-y" step="0.5" value="${el.y}">`)}</div>
+  return `<div class="two">${field(U.lab("Across (mm)"), `<input type="number" id="p-x" step="${U.step(0.5)}" value="${U.show(el.x)}">`)}${field(U.lab("Down (mm)"), `<input type="number" id="p-y" step="${U.step(0.5)}" value="${U.show(el.y)}">`)}</div>
     ${field("Place in the hoop", `<div class="align-grid">
       <button class="chip" data-place="left" title="Line up with the left edge of the sewing field">Left</button>
       <button class="chip" data-place="cx" title="Center across">Center</button>
@@ -446,7 +467,7 @@ function wireLetterColors(el) {
 function outlineFields(el) {
   const ol = el.outline || null;
   return `<div class="field border-card"><label class="radio"><input type="checkbox" id="p-ol"${ol ? " checked" : ""}> <b>Satin border</b></label><span class="muted small">An outline in a second thread</span></div>
-    <div id="p-ol-box"${ol ? "" : " hidden"}>${selectField("p-olfirst", "Sew it", [["first", "First, under the letters (nothing to snip)"], ["last", "Last, on top (snip jump threads)"]], ol && !ol.first ? "last" : "first")}${rangeField("p-olw", "Border width (mm)", 0.6, 3, 0.1, ol ? ol.width_mm : 1)}${threadField("p-olc", "Border thread", ol ? ol.color : "#3a2c22")}</div>`;
+    <div id="p-ol-box"${ol ? "" : " hidden"}>${selectField("p-olfirst", "Sew it", [["first", "First, under the letters (nothing to snip)"], ["last", "Last, on top (snip jump threads)"]], ol && !ol.first ? "last" : "first")}${rangeField("p-olw", "Border width (mm)", 0.6, 3, 0.1, ol ? ol.width_mm : 1, "len")}${threadField("p-olc", "Border thread", ol ? ol.color : "#3a2c22")}</div>`;
 }
 
 function renderProps() {
@@ -456,9 +477,9 @@ function renderProps() {
     const [W, H] = S.layout.hoop;
     box.innerHTML = `<h2>Your hoop</h2><div class="props-empty">
       <p class="hand">Start with some words, a shape, or a picture.</p>
-      <p>Sewing field: <b>${W} × ${H} mm</b>. Fabric: <b>${esc(S.meta?.fabrics?.[S.layout.fabric] || "")}</b>.</p>
+      <p>Sewing field: <b>${U.show(W)} × ${U.show(H)} ${U.u}</b>. Fabric: <b>${esc(S.meta?.fabrics?.[S.layout.fabric] || "")}</b>.</p>
       <p class="muted small">Tips: drag things in the hoop to place them; drag the corner dot to resize and the top dot to turn.
-      Letters look best at <b>6 mm or taller</b>. Click <b>Sew it out</b> to watch the stitch order.</p>
+      Letters look best at <b>${U.len(6)} or taller</b>. Click <b>Sew it out</b> to watch the stitch order.</p>
       <button class="btn" id="p-settings">Hoop &amp; fabric settings</button>
       <p class="hand" style="margin-top:18px">…or start from an example</p>
       <div class="chips">${Object.entries(EXAMPLES).map(([k, v]) => `<button class="chip" data-ex="${k}">${esc(v.name)}</button>`).join("")}</div></div>`;
@@ -471,9 +492,9 @@ function renderProps() {
     const multi = el.text.includes("\n");
     h += `<h2>Words</h2>` + field("Text", `<textarea id="p-text" rows="2" placeholder="Type here - Enter for a second line">${esc(el.text)}</textarea>`) +
       (String(el.font || "").startsWith("✦") ? "" : `<div class="swap-tip" id="p-swap" hidden></div>`) +
-      section("size", "Font, size &amp; shape", `${esc(String(el.font || "").replace("✦ ", ""))} · ${el.height_mm} mm${el.arc ? " · curved" : ""}`,
+      section("size", "Font, size &amp; shape", `${esc(String(el.font || "").replace("✦ ", ""))} · ${U.len(el.height_mm)}${el.arc ? " · curved" : ""}`,
         field("Font", `<div class="fontpick" id="fontpick"></div>`) +
-        rangeField("p-height_mm", "Letter height (capitals, mm)", 3, 80, 0.5, el.height_mm) +
+        rangeField("p-height_mm", "Letter height (capitals, mm)", 3, 80, 0.5, el.height_mm, "len") +
         rangeField("p-letter_spacing", "Letter spacing", -0.1, 0.5, 0.01, el.letter_spacing || 0) +
         rangeField("p-arc", "Curve (− smile / + arch)", -180, 180, 1, el.arc || 0) +
         (multi ? rangeField("p-line_spacing", "Line spacing", 0.8, 2, 0.05, el.line_spacing || 1.25) +
@@ -481,26 +502,26 @@ function renderProps() {
             `<button class="chip${(el.align || "center") === v ? " on" : ""}" data-align="${v}">${t}</button>`).join("")}</div>`) : "")) +
       section("color", "Thread &amp; colors", `<span class="dot" style="background:${el.color}"></span>${esc(threadName(el.color))}${(el.letter_colors || []).some(Boolean) ? " + letters" : ""}`,
         threadField("p-color", "Thread", el.color) + letterColorFields(el)) +
-      section("border", "Border", el.outline ? `${el.outline.width_mm} mm · sewn ${el.outline.first ? "first" : "last"}` : "none", outlineFields(el)) +
-      section("pos", "Position", `${el.x}, ${el.y} mm${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("border", "Border", el.outline ? `${U.len(el.outline.width_mm)} · sewn ${el.outline.first ? "first" : "last"}` : "none", outlineFields(el)) +
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else if (el.type === "shape") {
     h += `<h2>Shape</h2>` + field("Kind", `<div class="chips">${SHAPES.map(([k, t]) => `<button class="chip${k === el.kind ? " on" : ""}" data-kind="${k}">${t}</button>`).join("")}</div>`) +
-      `<div class="two">${field("Width (mm)", `<input type="number" id="p-width_mm" min="2" max="360" step="0.5" value="${el.width_mm}">`)}${field("Height (mm)", `<input type="number" id="p-height_mm" min="2" max="360" step="0.5" value="${el.height_mm}">`)}</div>` +
-      (["frame", "double_frame", "offset_frame", "ring", "line"].includes(el.kind) ? rangeField("p-stroke_mm", "Line thickness (mm)", 0.6, 8, 0.1, el.stroke_mm || 1.2) : "") +
+      `<div class="two">${field(U.lab("Width (mm)"), `<input type="number" id="p-width_mm" step="${U.step(0.5)}" value="${U.show(el.width_mm)}">`)}${field(U.lab("Height (mm)"), `<input type="number" id="p-height_mm" step="${U.step(0.5)}" value="${U.show(el.height_mm)}">`)}</div>` +
+      (["frame", "double_frame", "offset_frame", "ring", "line"].includes(el.kind) ? rangeField("p-stroke_mm", "Line thickness (mm)", 0.6, 8, 0.1, el.stroke_mm || 1.2, "len") : "") +
       section("color", "Thread &amp; stitch", `<span class="dot" style="background:${el.color}"></span>${esc(threadName(el.color))}`,
         threadField("p-color", "Thread", el.color) + selectField("p-style", "Stitch", STYLES, el.style || "auto")) +
-      section("border", "Border", el.outline ? `${el.outline.width_mm} mm` : "none", outlineFields(el)) +
-      section("pos", "Position", `${el.x}, ${el.y} mm${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("border", "Border", el.outline ? U.len(el.outline.width_mm) : "none", outlineFields(el)) +
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else if (el.type === "vector") {
     const cols = [...new Set((el.parts || []).map((p) => p.color.toLowerCase()))];
-    h += `<h2>Drawing</h2>` + rangeField("p-width_mm", "Width (mm)", 5, Math.max(...S.layout.hoop), 0.5, el.width_mm) +
+    h += `<h2>Drawing</h2>` + rangeField("p-width_mm", "Width (mm)", 5, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
       `<p class="hint">Redrawn from your picture as clean shapes (${(el.parts || []).length} parts), so it stitches smoothly.</p>` +
       `<button type="button" class="btn small" id="p-split" title="Make each object (e.g. the lights, the mountains) its own layer">Split into pieces</button>` +
       field("Threads", `<div class="vcolors">${cols.map((c) => `<label class="vcolor"><input type="color" data-vc="${c}" value="${c}"><span>${esc(threadName(c))}</span></label>`).join("")}</div>`) +
-      section("pos", "Position", `${el.x}, ${el.y} mm${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else {
     const cols = el.colors || [];
-    h += `<h2>Picture</h2>` + rangeField("p-width_mm", "Width (mm)", 10, Math.max(...S.layout.hoop), 0.5, el.width_mm) +
+    h += `<h2>Picture</h2>` + rangeField("p-width_mm", "Width (mm)", 10, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
       `<p class="hint">About ${Math.round(el.width_mm * (el.aspect || 1))} mm tall.</p>` +
       field("Colors <small>(untick to skip)</small>", `<div class="imgcolors">${cols.map((c, i) => `
         <div class="imgcolor"><span class="sw" style="background:${c.hex}" title="In the picture"></span>
@@ -509,7 +530,7 @@ function renderProps() {
           <select data-ci="${i}" data-k="style">${STYLES.map(([v, t]) => `<option value="${v}"${v === (c.style || "auto") ? " selected" : ""}>${t.split(" —")[0].replace(" (recommended)", "")}</option>`).join("")}</select>
         </div>`).join("")}</div>`) +
       `<p class="hint">Flat artwork (logos, clip art, lettering) stitches best. Photos won't.</p>` +
-      section("pos", "Position", `${el.x}, ${el.y} mm${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   }
   box.innerHTML = h;
   wireProps(el);
@@ -527,7 +548,10 @@ function setProp(el, key, val, rebuild = true) {
 function wireRange(el, key, rebuild = true, target = el) {
   const r = $("#p-" + key), n = $("#p-" + key + "-n");
   if (!r || !n) return; // plain number inputs (shape width/height) are wired separately
-  const set = (v) => { v = parseFloat(v); if (isNaN(v)) return; r.value = v; n.value = v; setProp(target, key, v, rebuild); };
+  const set = (v) => {
+    v = parseFloat(v); if (isNaN(v)) return; r.value = v; n.value = v;
+    setProp(target, key, r.dataset.len ? Math.round(U.toMm(v) * 100) / 100 : v, rebuild);
+  };
   r.oninput = () => set(r.value);
   n.onchange = () => set(n.value);
 }
@@ -595,7 +619,7 @@ function wireProps(el) {
     beginEdit(); (el.parts || []).forEach((p) => { if (p.color.toLowerCase() === old) p.color = inp.value; }); commit();
     inp.dataset.vc = inp.value.toLowerCase(); scheduleBuild(); save_local(); renderLayers();
   }));
-  ["width_mm", "height_mm"].forEach((k) => { const i = $("#p-" + k); if (i && i.type === "number" && el.type === "shape") i.onchange = () => setProp(el, k, clamp(parseFloat(i.value) || 10, 2, 360)); });
+  ["width_mm", "height_mm"].forEach((k) => { const i = $("#p-" + k); if (i && i.type === "number" && el.type === "shape") i.onchange = () => setProp(el, k, clamp(Math.round(U.toMm(parseFloat(i.value) || 0) * 10) / 10 || 10, 2, 360)); });
   const st = $("#p-style"); if (st) st.onchange = () => setProp(el, "style", st.value);
   const al = $("#p-align"); if (al) al.onchange = () => setProp(el, "align", al.value);
   wireThread("p-color", () => el.color, (hex) => { setProp(el, "color", hex); if ($("#p-letters")) $("#p-letters").innerHTML = letterChips(el); });
@@ -603,12 +627,12 @@ function wireProps(el) {
   const ol = $("#p-ol");
   if (ol) {
     ol.onchange = () => {
-      beginEdit(); el.outline = ol.checked ? { color: $("#p-olc").value || "#3a2c22", width_mm: parseFloat($("#p-olw").value) || 1, first: $("#p-olfirst").value === "first" } : null; commit();
+      beginEdit(); el.outline = ol.checked ? { color: $("#p-olc").value || "#3a2c22", width_mm: Math.round(U.toMm(parseFloat($("#p-olw").value)) * 100) / 100 || 1, first: $("#p-olfirst").value === "first" } : null; commit();
       $("#p-ol-box").hidden = !ol.checked; scheduleBuild(); save_local();
     };
     $("#p-olfirst").onchange = () => { if (el.outline) { beginEdit(); el.outline.first = $("#p-olfirst").value === "first"; commit(); scheduleBuild(); save_local(); } };
     const w = $("#p-olw"), wn = $("#p-olw-n");
-    const setw = (v) => { w.value = v; wn.value = v; if (el.outline) { beginEdit(); el.outline.width_mm = parseFloat(v); commit(); scheduleBuild(); save_local(); } };
+    const setw = (v) => { w.value = v; wn.value = v; if (el.outline) { beginEdit(); el.outline.width_mm = Math.round(U.toMm(parseFloat(v)) * 100) / 100; commit(); scheduleBuild(); save_local(); } };
     w.oninput = () => setw(w.value); wn.onchange = () => setw(wn.value);
     wireThread("p-olc", () => el.outline?.color, (hex) => { if (el.outline) { beginEdit(); el.outline.color = hex; commit(); scheduleBuild(); save_local(); } });
   }
@@ -619,7 +643,10 @@ function wireProps(el) {
     inp[ev] = () => { beginEdit(); el.colors[i][k] = inp.type === "checkbox" ? inp.checked : inp.value; commit(); scheduleBuild(); save_local(); renderLayers(); };
   });
   const px = $("#p-x"), py = $("#p-y");
-  if (px) { px.onchange = () => setProp(el, "x", parseFloat(px.value) || 0, false); py.onchange = () => setProp(el, "y", parseFloat(py.value) || 0, false); }
+  if (px) {
+    px.onchange = () => setProp(el, "x", Math.round(U.toMm(parseFloat(px.value) || 0) * 10) / 10, false);
+    py.onchange = () => setProp(el, "y", Math.round(U.toMm(parseFloat(py.value) || 0) * 10) / 10, false);
+  }
   $$("[data-align]").forEach((b) => (b.onclick = () => { setProp(el, "align", b.dataset.align); $$("[data-align]").forEach((c) => c.classList.toggle("on", c === b)); }));
   $$("[data-place]").forEach((b) => (b.onclick = () => {
     const [W, H] = S.layout.hoop, bx = S.built?.elements?.[S.sel] || { w: 0, h: 0 };
@@ -633,7 +660,7 @@ function wireProps(el) {
     if (k === "right") setProp(el, "x", r1(W / 2 - hw), false);
     if (k === "top") setProp(el, "y", r1(-H / 2 + hh), false);
     if (k === "bottom") setProp(el, "y", r1(H / 2 - hh), false);
-    px.value = el.x; py.value = el.y; scheduleBuild();
+    px.value = U.show(el.x); py.value = U.show(el.y); scheduleBuild();
   }));
   if (el.type === "text") fontPicker($("#fontpick"), el.font, (f) => { setProp(el, "font", f); });
 }
@@ -751,11 +778,11 @@ function renderChart() {
   const st = S.built?.stats;
   if (!st) return;
   const fmt = (n) => n.toLocaleString();
-  $("#stats").innerHTML = `<span>Stitches</span><b>${fmt(st.stitches)}</b><span>Size</span><b>${st.size[0]} × ${st.size[1]} mm</b>
+  $("#stats").innerHTML = `<span>Stitches</span><b>${fmt(st.stitches)}</b><span>Size</span><b>${U.show(st.size[0])} × ${U.show(st.size[1])} ${U.u}</b>
     <span>Sewing time</span><b>≈ ${Math.max(1, Math.round(st.minutes))} min</b>
-    <span>Thread</span><b title="Top thread; bobbin ≈ ${st.bobbin_m} m">≈ ${st.thread_m} m <small class="muted">+ ${st.bobbin_m} m bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
+    <span>Thread</span><b title="Top thread; bobbin ≈ ${U.thread(st.bobbin_m)}">≈ ${U.thread(st.thread_m)} <small class="muted">+ ${U.thread(st.bobbin_m)} bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
   $("#spools").innerHTML = st.colors.map((c, i) => `<div class="spool${threadSel.has(c.hex.toLowerCase()) ? " on" : ""}" data-hex="${c.hex.toLowerCase()}" title="Click to pick for merging · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
-    <div class="t"><b>${i + 1}. ${esc(c.thread)}</b><span class="n">${fmt(c.stitches)} stitches · ≈ ${c.thread_m} m</span></div></div>`).join("") ||
+    <div class="t"><b>${i + 1}. ${esc(c.thread)}</b><span class="n">${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`).join("") ||
     `<span class="muted" style="font-family:Hand,cursive;font-size:18px">Thread chart appears here.</span>`;
   const live = new Set(st.colors.map((c) => c.hex.toLowerCase()));
   threadSel = new Set([...threadSel].filter((h) => live.has(h)));
@@ -766,7 +793,10 @@ function renderChart() {
     renderSpoolTools(); draw();
   }));
   renderSpoolTools();
-  $("#notes").innerHTML = (st.warnings || []).slice(0, 3).map((w) => `<div class="note">${esc(w)}</div>`).join("");
+  // server messages are written in mm; show them in the chosen units
+  const inUnits = (w) => (U.inch ? w.replace(/(\d+(?:\.\d+)?)(?:\s?[x×]\s?(\d+(?:\.\d+)?))?\s?mm\b/g,
+    (m, a, b) => (b ? `${U.show(+a)} × ${U.show(+b)} in` : U.len(+a))) : w);
+  $("#notes").innerHTML = (st.warnings || []).map(inUnits).slice(0, 3).map((w) => `<div class="note">${esc(w)}</div>`).join("");
 }
 
 // ------------------------------------------------------------------ canvas
@@ -852,7 +882,8 @@ function drawHoop() {
   ctx.fillStyle = "#7d6122"; ctx.beginPath(); ctx.arc(cx, cy, 1.6 * s, 0, 7); ctx.fill();
   // measuring grid (like a slicer's build plate)
   {
-    const stepMm = view.s < 2.2 ? 20 : 10, g0 = px2mm(x0, y0), g1 = px2mm(x0 + fw, y0 + fh);
+    const stepMm = U.inch ? (view.s < 2.2 ? 25.4 : 12.7) : (view.s < 2.2 ? 20 : 10), g0 = px2mm(x0, y0), g1 = px2mm(x0 + fw, y0 + fh);
+    const majEvery = U.inch ? (view.s < 2.2 ? 1 : 2) : 5; // strong line every inch / every 50 mm
     const gx0 = g0[0], gy0 = g0[1], gx1 = g1[0], gy1 = g1[1];
     ctx.save();
     roundRect(ctx, x0, y0, fw, fh, rr); ctx.clip(); // stay on the fabric
@@ -861,13 +892,13 @@ function drawHoop() {
     const lum = parseInt(fc.slice(1, 3), 16) + parseInt(fc.slice(3, 5), 16) + parseInt(fc.slice(5, 7), 16);
     const ink = lum > 380 ? "60,40,25" : "255,255,255", al = lum > 380 ? [0.13, 0.22, 0.32] : [0.14, 0.25, 0.36];
     for (let m = Math.ceil(gx0 / stepMm) * stepMm; m <= gx1; m += stepMm) {
-      const major = m === 0 ? 2 : m % 50 === 0 ? 1 : 0;
+      const gk = Math.round(m / stepMm), major = gk === 0 ? 2 : gk % majEvery === 0 ? 1 : 0;
       ctx.strokeStyle = `rgba(${ink},${al[major]})`;
       const [px, py0] = mm2px(m, gy0), [, py1] = mm2px(m, gy1);
       ctx.beginPath(); ctx.moveTo(Math.round(px) + 0.5, py0); ctx.lineTo(Math.round(px) + 0.5, py1); ctx.stroke();
     }
     for (let m = Math.ceil(gy0 / stepMm) * stepMm; m <= gy1; m += stepMm) {
-      const major = m === 0 ? 2 : m % 50 === 0 ? 1 : 0;
+      const gk = Math.round(m / stepMm), major = gk === 0 ? 2 : gk % majEvery === 0 ? 1 : 0;
       ctx.strokeStyle = `rgba(${ink},${al[major]})`;
       const [px0, py] = mm2px(gx0, m), [px1] = mm2px(gx1, m);
       ctx.beginPath(); ctx.moveTo(px0, Math.round(py) + 0.5); ctx.lineTo(px1, Math.round(py) + 0.5); ctx.stroke();
@@ -879,8 +910,9 @@ function drawHoop() {
   ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(122,82,52,.55)"; ctx.lineWidth = 1;
   ctx.strokeRect(fx, fy, W * s, H * s); ctx.setLineDash([]);
   ctx.strokeStyle = "rgba(122,82,52,.45)";
-  for (let m = 0; m <= W; m += 5) { const [tx] = mm2px(-W / 2 + m, 0); ctx.beginPath(); ctx.moveTo(tx, fy); ctx.lineTo(tx, fy - (m % 10 ? 3 : 7)); ctx.stroke(); }
-  for (let m = 0; m <= H; m += 5) { const [, ty] = mm2px(0, -H / 2 + m); ctx.beginPath(); ctx.moveTo(fx, ty); ctx.lineTo(fx - (m % 10 ? 3 : 7), ty); ctx.stroke(); }
+  const tick = U.inch ? 25.4 / 8 : 5, longEvery = U.inch ? 4 : 2; // eighths of an inch, long every half / 5 mm, long every 10
+  for (let i = 0, m = 0; m <= W + 1e-6; m = ++i * tick) { const [tx] = mm2px(-W / 2 + m, 0); ctx.beginPath(); ctx.moveTo(tx, fy); ctx.lineTo(tx, fy - (i % longEvery ? 3 : 7)); ctx.stroke(); }
+  for (let i = 0, m = 0; m <= H + 1e-6; m = ++i * tick) { const [, ty] = mm2px(0, -H / 2 + m); ctx.beginPath(); ctx.moveTo(fx, ty); ctx.lineTo(fx - (i % longEvery ? 3 : 7), ty); ctx.stroke(); }
   // centre mark
   ctx.strokeStyle = "rgba(122,82,52,.35)";
   ctx.beginPath(); ctx.moveTo(view.ox - 6, view.oy); ctx.lineTo(view.ox + 6, view.oy); ctx.moveTo(view.ox, view.oy - 6); ctx.lineTo(view.ox, view.oy + 6); ctx.stroke();
@@ -1282,7 +1314,7 @@ $("#sewClose").onclick = endSew;
 // ------------------------------------------------------------------ export & disk
 function offHoopMessage() {
   const o = S.built?.stats?.over || {};
-  const parts = Object.entries(o).map(([k, v]) => `${v} mm past the ${k} edge`);
+  const parts = Object.entries(o).map(([k, v]) => `${U.len(v)} past the ${k} edge`);
   return `Can't save yet: the design is ${parts.join(" and ") || "partly off the hoop"}. Move or shrink it so everything is inside the hoop.`;
 }
 function blockedOffHoop(inDialog) {
@@ -1361,7 +1393,15 @@ function openSettings() {
   const hv = S.layout.hoop.join("x");
   const preset = [...$("#setHoop").options].some((o) => o.value === hv);
   $("#setHoop").value = preset ? hv : "custom";
-  $("#setHoopW").value = S.layout.hoop[0]; $("#setHoopH").value = S.layout.hoop[1];
+  $("#setUnits").value = UNITS;
+  $("#setHoopW").value = U.show(S.layout.hoop[0]); $("#setHoopH").value = U.show(S.layout.hoop[1]);
+  $("#setHoopW").step = $("#setHoopH").step = U.inch ? 0.1 : 1;
+  $("#setHoopW").placeholder = `Width (${U.u})`; $("#setHoopH").placeholder = `Height (${U.u})`;
+  [...$("#setHoop").options].forEach((o) => {
+    if (!o.dataset.label) o.dataset.label = o.textContent;
+    const [w, h] = o.value.split("x").map(Number);
+    o.textContent = o.dataset.label + (U.inch && w ? ` (${U.show(w)} × ${U.show(h)} in)` : "");
+  });
   $("#customHoop").hidden = preset;
   $("#setHoop").onchange = () => { $("#customHoop").hidden = $("#setHoop").value !== "custom"; };
   $("#setFabric").innerHTML = Object.entries(S.meta.fabrics).map(([k, v]) => `<option value="${k}"${k === S.layout.fabric ? " selected" : ""}>${esc(v)}</option>`).join("");
@@ -1376,8 +1416,9 @@ function openSettings() {
 async function saveSettings() {
   commit(true); beginEdit();
   S.layout.hoop = $("#setHoop").value === "custom"
-    ? [clamp(Math.round(+$("#setHoopW").value || 100), 20, 500), clamp(Math.round(+$("#setHoopH").value || 100), 20, 500)]
+    ? [clamp(Math.round(U.toMm(+$("#setHoopW").value) || 100), 20, 500), clamp(Math.round(U.toMm(+$("#setHoopH").value) || 100), 20, 500)]
     : $("#setHoop").value.split("x").map(Number);
+  if ($("#setUnits").value !== UNITS) setUnits($("#setUnits").value);
   S.layout.fabric = $("#setFabric").value;
   S.layout.density = $("#setDensity").value;
   S.layout.group_colors = $("#setGroup").checked;
@@ -1437,6 +1478,8 @@ $("#btnRedo").onclick = redo;
 $("#designName").oninput = () => { beginEdit(); S.layout.name = $("#designName").value; commit(); save_local(); };
 $("#zoomIn").onclick = () => { S.zoom = clamp(S.zoom * 1.25, 0.4, 8); draw(); };
 $("#zoomOut").onclick = () => { S.zoom = clamp(S.zoom / 1.25, 0.4, 8); draw(); };
+$("#unitsToggle").textContent = UNITS;
+$("#unitsToggle").onclick = () => setUnits(UNITS === "mm" ? "in" : "mm");
 $("#zoomFit").onclick = () => { S.zoom = 1; S.pan = { x: 0, y: 0 }; draw(); };
 cv.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
 new ResizeObserver(() => resize()).observe($("#hoopWrap")); // redraw whenever the hoop area changes size
@@ -1460,7 +1503,7 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "ArrowUp") el.y -= st; if (e.key === "ArrowDown") el.y += st;
     el.x = Math.round(el.x * 10) / 10; el.y = Math.round(el.y * 10) / 10;
     commit(); draw(); save_local(); scheduleBuild(500);
-    const px = $("#p-x"), py = $("#p-y"); if (px) { px.value = el.x; py.value = el.y; }
+    const px = $("#p-x"), py = $("#p-y"); if (px) { px.value = U.show(el.x); py.value = U.show(el.y); }
   }
 });
 // drop a picture anywhere onto the hoop

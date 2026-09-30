@@ -93,6 +93,7 @@
         <span id="zoomLabel">100%</span>
         <button class="btn ghost small" id="zoomIn" aria-label="Zoom in">+</button>
         <button class="btn ghost small" id="zoomFit">Fit</button>
+        <button class="btn ghost small" id="unitsToggle" title="Show sizes in millimeters or inches">mm</button>
       </div>
       <label class="toggle"><input type="checkbox" id="showArt"> <span>Show artwork</span></label>
       <label class="toggle"><input type="checkbox" id="showJumps"> <span>Show jumps</span></label>
@@ -159,6 +160,8 @@
 <dialog id="dlgSettings" class="sheet">
   <form method="dialog">
     <h2>Settings</h2>
+    <div class="field"><label for="setUnits">Units</label>
+      <select id="setUnits"><option value="mm">Metric (millimeters, meters)</option><option value="in">Imperial (inches, yards)</option></select></div>
     <div class="field"><label for="setHoop">Hoop</label>
       <select id="setHoop">
         <option value="100x100">Designer I small hoop — 100 × 100 mm sewing field</option>
