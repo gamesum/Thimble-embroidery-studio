@@ -308,7 +308,24 @@ function fitWidth(aspect) {
   return Math.round(Math.min(W * 0.9, (H * 0.9) / aspect));
 }
 
+// files that aren't pictures: embroidery files keep their own stitches, SVG becomes a drawing
+const EMB_EXT = new Set("100,10o,bro,dat,dsb,dst,dsz,emd,exp,exy,fxy,gt,hus,inb,jef,jpx,ksm,max,mit,new,pcd,pcm,pcq,pcs,pec,pes,phb,phc,sew,shv,spx,stc,stx,tap,tbf,u01,vp3,xxx,zhs,zxy".split(",").map((e) => e.replace(".", "")));
+async function importFile(file) {
+  busy("now", "Opening " + file.name + "…");
+  try {
+    const fd = new FormData(); fd.append("file", file); fd.append("hoop", S.layout.hoop.join(","));
+    const r = await fetch("/api/import", { method: "POST", body: fd });
+    const j = await r.json().catch(() => ({ error: r.statusText }));
+    if (!r.ok || j.error) throw new Error(j.error || "import failed");
+    addElement(j.element);
+    toast(j.element.type === "stitches"
+      ? `Opened ${esc(file.name)} - its stitches are used as they are. You can move, turn and recolor it.`
+      : `Imported ${esc(file.name)} as a drawing - clean shapes, ready to stitch.`, "good");
+  } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
+}
 async function addPicture(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (ext === "svg" || EMB_EXT.has(ext)) return importFile(file);
   busy("now", "Unpicking the colors…");
   try {
     const info = await uploadPicture(file);
@@ -407,6 +424,7 @@ function elLabel(el) {
 function elColor(el) {
   if (el.type === "image") { const k = (el.colors || []).find((c) => c.keep); return k ? k.thread : "#999"; }
   if (el.type === "vector") return (el.parts || [])[0]?.color || "#999";
+  if (el.type === "stitches") return (el.blocks || [])[0]?.color || "#999";
   return el.color;
 }
 
@@ -428,7 +446,7 @@ function renderLayers() {
     const li = document.createElement("li");
     li.className = "layer" + (i === S.sel || multi.has(el.id) ? " sel" : "") + (el.hidden ? " hidden" : "");
     li.innerHTML = `<span class="dot" style="background:${esc(elColor(el))}"></span>
-      <span class="name">${esc(elLabel(el))}</span><span class="kind">${el.type === "image" ? "pic" : el.type === "vector" ? "drawing" : el.type}</span>
+      <span class="name">${esc(elLabel(el))}</span><span class="kind">${el.type === "image" ? "pic" : el.type === "vector" ? "drawing" : el.type === "stitches" ? "stitch file" : el.type}</span>
       <span class="icons">
         <button data-a="up" title="Sew earlier" aria-label="Move up">${ICON.up}</button>
         <button data-a="down" title="Sew later" aria-label="Move down">${ICON.down}</button>
@@ -615,6 +633,13 @@ function renderProps() {
         threadField("p-color", "Thread", el.color) + selectField("p-style", "Stitch", STYLES, el.style || "auto")) +
       section("border", "Border", el.outline ? U.len(el.outline.width_mm) : "none", outlineFields(el)) +
       section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+  } else if (el.type === "stitches") {
+    const k = el.width_mm / (el.orig_w || el.width_mm);
+    h += `<h2>Stitch file</h2>` + rangeField("p-width_mm", "Width (mm)", Math.max(3, el.orig_w * 0.5), el.orig_w * 1.5, 0.5, el.width_mm, "len") +
+      `<p class="hint">${Math.abs(k - 1) > 0.1 ? `<b>Resized to ${Math.round(k * 100)}%.</b> Stitch files look best within about 10% of their own size. ` : ""}These are the file's own stitches, so they sew exactly as they were digitized.</p>` +
+      (Math.abs(k - 1) > 0.001 ? `<button type="button" class="btn small" id="p-resetsize">Back to original size</button>` : "") +
+      field("Threads", `<div class="vcolors">${(el.blocks || []).map((b, i) => `<label class="vcolor"><input type="color" data-sc="${i}" value="${b.color}"><span>${i + 1}. ${esc(threadName(b.color))}</span></label>`).join("")}</div>`) +
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else if (el.type === "vector") {
     const cols = [...new Set((el.parts || []).map((p) => p.color.toLowerCase()))];
     h += `<h2>Drawing</h2>` + rangeField("p-width_mm", "Width (mm)", 5, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
@@ -699,7 +724,11 @@ function wireProps(el) {
     if ($("#p-letters")) $("#p-letters").innerHTML = letterChips(el); if (had !== t.value.includes("\n")) { renderProps(); $("#p-text").focus(); } };
   ["height_mm", "letter_spacing", "arc", "line_spacing", "stroke_mm"].forEach((k) => wireRange(el, k));
   wireRange(el, "rotation", false);
-  if (el.type === "image" || el.type === "vector") wireRange(el, "width_mm");
+  if (el.type === "image" || el.type === "vector" || el.type === "stitches") wireRange(el, "width_mm");
+  $$("[data-sc]").forEach((inp) => (inp.oninput = () => {
+    beginEdit(); el.blocks[+inp.dataset.sc].color = inp.value; commit(); scheduleBuild(); save_local(); renderLayers();
+  }));
+  const rs = $("#p-resetsize"); if (rs) rs.onclick = () => { setProp(el, "width_mm", el.orig_w); renderProps(); };
   const split = $("#p-split");
   if (split) split.onclick = async () => {
     try {
@@ -830,6 +859,7 @@ function recolorAll(map) {
     if (el.outline) el.outline.color = f(el.outline.color);
     if (el.letter_colors) el.letter_colors = el.letter_colors.map((c) => (c ? f(c) : c));
     (el.parts || []).forEach((p) => (p.color = f(p.color)));
+    (el.blocks || []).forEach((b) => (b.color = f(b.color)));
     (el.colors || []).forEach((c) => (c.thread = f(c.thread)));
   }
 }
@@ -1280,7 +1310,7 @@ function applyResize(e, mx, my) {
   const ax = (-sx * W) / 2, ay = (-sy * H) / 2; // opposite corner / edge stays put
   let fx = 1, fy = 1;
   const corner = sx !== 0 && sy !== 0;
-  if (corner || el.type === "image" || el.type === "vector" || (el.type === "text" && sy !== 0)) {
+  if (corner || el.type === "image" || el.type === "vector" || el.type === "stitches" || (el.type === "text" && sy !== 0)) {
     // proportional: project the pointer onto the handle's diagonal (or axis)
     const vx = sx ? sx * W : 0, vy = sy ? sy * H : 0;
     const t = ((lx - ax) * vx + (ly - ay) * vy) / (vx * vx + vy * vy);
@@ -1775,7 +1805,7 @@ document.addEventListener("keydown", (e) => {
 });
 // drop a picture anywhere onto the hoop
 $("#hoopWrap").addEventListener("dragover", (e) => e.preventDefault());
-$("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f && f.type.startsWith("image/")) addPicture(f); });
+$("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) addPicture(f); }); // pictures, SVG or embroidery files
 
 // ------------------------------------------------------------------ start
 (async function start() {

@@ -176,6 +176,13 @@ def outline_mask(mask, width_mm, gap_mm=0.0):
 
 # ----------------------------------------------------------------------------- images
 
+try:  # iPhone photos (HEIC/HEIF)
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:  # pragma: no cover - optional
+    pass
+
+
 def load_image(path_or_file):
     im = Image.open(path_or_file)
     im.load()

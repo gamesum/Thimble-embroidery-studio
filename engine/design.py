@@ -253,7 +253,8 @@ def vector_layers(el):
         if not len(pts):
             continue
         if part.get("type") == "polygon" and len(pts) >= 3:
-            cv2.fillPoly(m, [pts], 1)
+            rings = [pts] + [np.array([to_px(u, v) for u, v in r], np.int32) for r in part.get("rings", []) if len(r) >= 3]
+            cv2.fillPoly(m, rings, 1)  # several rings in one call: inner ones become holes
         elif part.get("type") == "polyline" and len(pts) >= 2:
             sw = float(part.get("stroke") or 0) * w
             if sw < 0.9:
@@ -365,6 +366,16 @@ def element_blocks(el, P, fabric, progress=None):
     key = hashlib.sha1(json.dumps([key_el, fabric], sort_keys=True).encode()).hexdigest()
     if key in _cache:
         return _cache[key]
+    if el.get("type") == "stitches":
+        k = float(el.get("width_mm") or 1) / float(el.get("orig_w") or el.get("width_mm") or 1)
+        blocks = [dict(color=b["color"], objects=[[(x * k, y * k) for x, y in o] for o in b["objects"]],
+                       kinds=["stitches"] * len(b["objects"])) for b in el.get("blocks", [])]
+        pts = [p for b in blocks for o in b["objects"] for p in o]
+        size = ((max(p[0] for p in pts) - min(p[0] for p in pts), max(p[1] for p in pts) - min(p[1] for p in pts))
+                if pts else (0, 0))
+        res = (blocks, size)
+        _cache[key] = res
+        return res
     fam = embfont.family(el.get("font")) if el.get("type") == "text" else None
     if fam:
         res = _emb_text_blocks(el, fam, P)
@@ -561,6 +572,12 @@ def stats(blocks, layout, pattern):
             if hmm < lo * 0.95 or hmm > hi * 1.05:
                 warnings.append("%s is digitized for %.0f-%.0f mm letters; at %.1f mm it may sew poorly. Pick another font or resize."
                                 % (fam["name"].lstrip("✦ "), lo, hi, hmm))
+    for el in layout.get("elements", []):
+        if el.get("type") == "stitches" and el.get("orig_w"):
+            k = float(el.get("width_mm") or 1) / float(el["orig_w"])
+            if abs(k - 1) > 0.1:
+                warnings.append('"%s" is resized to %d%% - stitch files get too dense or too sparse past about 10%%.'
+                                % (el.get("name", "Stitch file")[:20], round(k * 100)))
     counts = [sum(1 for _ in o) + 6 for b in blocks for o in [sum(b["objects"], [])]]
     total = sum(1 for s in pattern.stitches if s[2] == pe.STITCH)
     jumps = sum(len(b["objects"]) for b in blocks) - len(blocks)

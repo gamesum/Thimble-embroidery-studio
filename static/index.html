@@ -59,14 +59,14 @@
         <button class="add-btn" id="addShape">
           <svg viewBox="0 0 32 32"><path d="M16 26s-9-5.5-9-12a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6.5-9 12-9 12z"/></svg>
           <span>Shape</span></button>
-        <button class="add-btn" id="addImage">
+        <button class="add-btn" id="addImage" title="A picture (PNG, JPG, HEIC...), SVG vector art, or an embroidery file (PES, DST, JEF, VP3, SHV and more)">
           <svg viewBox="0 0 32 32"><rect x="5" y="7" width="22" height="18" rx="2"/><circle cx="12" cy="13" r="2.2"/><path d="m6 23 7-7 5 5 3-3 5 5"/></svg>
-          <span>Picture</span></button>
+          <span>Picture / file</span></button>
         <button class="add-btn ai" id="addAI" title="Reads the words and shapes in a picture and rebuilds them with embroidery fonts">
           <svg viewBox="0 0 32 32"><path d="M16 5l2.2 6.3L24.5 13l-6.3 2.2L16 21.5l-2.2-6.3L7.5 13l6.3-1.7z"/><path d="M24 20l1 2.6 2.6 1-2.6 1L24 27l-1-2.4-2.6-1 2.6-1z"/></svg>
           <span>Read a picture</span></button>
       </div>
-      <input type="file" id="fileInput" accept="image/*" hidden>
+      <input type="file" id="fileInput" accept="image/*,.heic,.heif,.svg,.100,.10o,.bro,.dat,.dsb,.dst,.dsz,.emd,.exp,.exy,.fxy,.gt,.hus,.inb,.jef,.jpx,.ksm,.max,.mit,.new,.pcd,.pcm,.pcq,.pcs,.pec,.pes,.phb,.phc,.sew,.shv,.spx,.stc,.stx,.tap,.tbf,.u01,.vp3,.xxx,.zhs,.zxy" hidden>
       <div class="ai-mode" role="radiogroup" aria-label="How closely the AI copies the picture">
         <span title="How closely Read a picture copies it">AI style:</span>
         <label><input type="radio" name="aiMode" value="exact" checked> Exact copy</label>

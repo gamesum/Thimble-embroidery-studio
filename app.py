@@ -149,8 +149,8 @@ def upload():
     if not f:
         return err("No file received.")
     ext = os.path.splitext(f.filename or "")[1].lower()
-    if ext not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"):
-        return err("Please use a PNG, JPG, BMP, GIF or WEBP picture.")
+    if ext not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".heif"):
+        return err("Please use a PNG, JPG, HEIC, WEBP, BMP, GIF or TIFF picture - or an SVG or embroidery file.")
     image_id = uuid.uuid4().hex[:12] + ext
     path = os.path.join(UPLOADS, image_id)
     f.save(path)
@@ -160,6 +160,36 @@ def upload():
         os.remove(path)
         return err("That file doesn't look like a picture I can read.")
     return jsonify(image_info(image_id, im))
+
+
+@app.post("/api/import")
+def import_file():
+    """Embroidery files (PES, DST, JEF, VP3, SHV, ...) and SVG vector art -> a ready element."""
+    from engine import importers
+    import tempfile
+    f = request.files.get("file")
+    if not f:
+        return err("No file received.")
+    name, ext = os.path.splitext(os.path.basename(f.filename or "file"))
+    ext = ext.lower()
+    if ext != ".svg" and ext not in importers.EMB_EXTS:
+        return err("Thimble can't open %s files." % (ext or "those"))
+    tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    try:
+        f.save(tmp.name)
+        tmp.close()
+        hoop = [float(v) for v in (request.form.get("hoop") or "100,100").split(",")[:2]]
+        el = importers.read_svg(tmp.name, hoop, name) if ext == ".svg" else importers.read_embroidery(tmp.name, name)
+    except ValueError as e:
+        return err(str(e))
+    except Exception:
+        return err("That file couldn't be read - it may be damaged or a variant Thimble doesn't know.")
+    finally:
+        try:
+            os.remove(tmp.name)
+        except OSError:
+            pass
+    return jsonify(element=el)
 
 
 def image_info(image_id, im):
