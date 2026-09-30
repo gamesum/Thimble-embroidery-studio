@@ -310,6 +310,35 @@ function fitWidth(aspect) {
 
 // files that aren't pictures: embroidery files keep their own stitches, SVG becomes a drawing
 const EMB_EXT = new Set("100,10o,bro,dat,dsb,dst,dsz,emd,exp,exy,fxy,gt,hus,inb,jef,jpx,ksm,max,mit,new,pcd,pcm,pcq,pcs,pec,pes,phb,phc,sew,shv,spx,stc,stx,tap,tbf,u01,vp3,xxx,zhs,zxy".split(",").map((e) => e.replace(".", "")));
+// a stitch file can't be resized/edited freely - redraw it as a picture, then trace it or have
+// the AI rebuild it, and put the result in its place at the same size
+async function recreateStitches(el, useAI) {
+  if (useAI && !S.meta.ai) { toast("Add your Anthropic API key in Settings first.", "bad"); openSettings(); return; }
+  busy("now", useAI ? "Recreating with AI…" : "Tracing the stitches…");
+  try {
+    const info = await api("/api/stitches-to-image", el);
+    S.images[info.image_id] = info;
+    const at = S.layout.elements.indexOf(el);
+    let fresh;
+    if (useAI) {
+      // read it as if it were a hoop the size of the stitch file, then move it to where the file was
+      const res = await api("/api/ai/analyze", { image_id: info.image_id, hoop: [info.width_mm / 0.9, info.height_mm / 0.9], mode: "exact" });
+      fresh = res.elements.map((e) => Object.assign(e, { id: uid(), x: Math.round((e.x + el.x) * 10) / 10, y: Math.round((e.y + el.y) * 10) / 10 }));
+      if (!fresh.length) throw new Error("The AI couldn't find anything to rebuild in that file.");
+      S.layout.ai_read = { image_id: info.image_id, mode: "exact", raw: res.raw, ids: fresh.map((e) => e.id) };
+    } else {
+      fresh = [{ id: uid(), type: "image", image_id: info.image_id, name: (el.name || "Stitch file") + " (traced)", width_mm: info.width_mm,
+        aspect: info.aspect, colors: info.colors, x: el.x, y: el.y, rotation: el.rotation || 0 }];
+    }
+    commit(true); beginEdit();
+    S.layout.elements.splice(at, 1, ...fresh);
+    commit(true);
+    S.sel = at; S.autoSimplify = useAI;
+    renderLayers(); renderProps(); scheduleBuild(0); save_local();
+    toast(useAI ? `Recreated as ${fresh.length} editable piece${fresh.length === 1 ? "" : "s"}. Undo brings the stitch file back.`
+      : "Traced into an editable picture. Undo brings the stitch file back.", "good");
+  } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
+}
 async function importFile(file) {
   busy("now", "Opening " + file.name + "…");
   try {
@@ -638,6 +667,11 @@ function renderProps() {
     h += `<h2>Stitch file</h2>` + rangeField("p-width_mm", "Width (mm)", Math.max(3, el.orig_w * 0.5), el.orig_w * 1.5, 0.5, el.width_mm, "len") +
       `<p class="hint">${Math.abs(k - 1) > 0.1 ? `<b>Resized to ${Math.round(k * 100)}%.</b> Stitch files look best within about 10% of their own size. ` : ""}These are the file's own stitches, so they sew exactly as they were digitized.</p>` +
       (Math.abs(k - 1) > 0.001 ? `<button type="button" class="btn small" id="p-resetsize">Back to original size</button>` : "") +
+      `<div class="field recreate-card"><div class="lbl"><span>Want to resize or edit it freely?</span></div>
+        <button type="button" class="btn small primary" id="p-recreate-ai">Recreate with AI (editable)</button>
+        <button type="button" class="btn small" id="p-recreate-trace">Trace into an editable picture</button>
+        <p class="hint">The AI reads it like a picture and rebuilds real text, shapes and drawings in its place.
+        Tracing is free and needs no AI - fine for simple shapes; lettering comes out better with the AI.</p></div>` +
       field("Threads", `<div class="vcolors">${(el.blocks || []).map((b, i) => `<label class="vcolor"><input type="color" data-sc="${i}" value="${b.color}"><span>${i + 1}. ${esc(threadName(b.color))}</span></label>`).join("")}</div>`) +
       section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else if (el.type === "vector") {
@@ -729,6 +763,8 @@ function wireProps(el) {
     beginEdit(); el.blocks[+inp.dataset.sc].color = inp.value; commit(); scheduleBuild(); save_local(); renderLayers();
   }));
   const rs = $("#p-resetsize"); if (rs) rs.onclick = () => { setProp(el, "width_mm", el.orig_w); renderProps(); };
+  const ra = $("#p-recreate-ai"); if (ra) ra.onclick = () => recreateStitches(el, true);
+  const rt = $("#p-recreate-trace"); if (rt) rt.onclick = () => recreateStitches(el, false);
   const split = $("#p-split");
   if (split) split.onclick = async () => {
     try {

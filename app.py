@@ -192,6 +192,38 @@ def import_file():
     return jsonify(element=el)
 
 
+@app.post("/api/stitches-to-image")
+def stitches_to_image():
+    """A stitch file drawn as a flat-colour picture (each thread one solid colour, on a background
+    unlike any of them), saved as an upload so it can be traced or read by the AI like any picture."""
+    el = request.get_json(force=True)
+    if el.get("type") != "stitches":
+        return err("Only stitch files can be turned into a picture.")
+    el0 = dict(el, x=0, y=0, rotation=0)
+    blocks, (w, h) = design.element_blocks(el0, params_for("knit"), "to-image")
+    if not blocks or w <= 0 or h <= 0:
+        return err("That stitch file is empty.")
+    pad = 3.0
+    scale = max(6.0, min(16.0, 1500.0 / max(w, h)))  # px per mm: ~1500 px on the long side
+    W, H = int((w + 2 * pad) * scale), int((h + 2 * pad) * scale)
+    cols = [design.hex_to_rgb(b["color"]) for b in blocks]
+    cands = [(255, 255, 255), (0, 0, 0), (128, 128, 128), (0, 170, 255), (255, 0, 200), (0, 200, 90)]
+    bg = max(cands, key=lambda c: min((sum((a - b) ** 2 for a, b in zip(c, t)) for t in cols), default=1e9))
+    im = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(im)
+    tw = max(2, int(round(0.5 * scale)))
+    for b, rgb in zip(blocks, cols):
+        for o in b["objects"]:
+            pts = [(W / 2 + x * scale, H / 2 + y * scale) for x, y in o]
+            if len(pts) > 1:
+                d.line(pts, fill=rgb, width=tw, joint="curve")
+    image_id = uuid.uuid4().hex[:12] + ".png"
+    im.save(os.path.join(UPLOADS, image_id))
+    info = image_info(image_id, im)
+    info.update(width_mm=round(w + 2 * pad, 1), height_mm=round(h + 2 * pad, 1))
+    return jsonify(info)
+
+
 def image_info(image_id, im):
     pal = raster.palette(im)
     small = im.copy()

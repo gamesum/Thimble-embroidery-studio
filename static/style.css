@@ -365,3 +365,6 @@ details.sec > summary:hover .t { color: var(--walnut); }
 
 .multi-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .multi-list li { display: flex; align-items: center; gap: 8px; }
+
+.recreate-card { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(176, 138, 92, .08); border: 1px dashed var(--stitch); }
+.recreate-card .btn { margin: 4px 6px 4px 0; }
