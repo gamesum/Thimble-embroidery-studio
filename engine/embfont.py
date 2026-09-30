@@ -24,6 +24,15 @@ INK = "{%s}" % NS["inkscape"]
 IST = "{%s}" % NS["inkstitch"]
 SOD = "{%s}" % NS["sodipodi"]
 
+
+def num(v, default=0.0):
+    """A number from a design piece; empty/None/garbage falls back to the default."""
+    try:
+        f = float(v)
+        return f if f == f else float(default)  # NaN -> default
+    except (TypeError, ValueError):
+        return float(default)
+
 # ----------------------------------------------------------------------------- catalogue
 
 CATEGORY = [("handwriting", "Script"), ("italic", "Script"), ("serif", "Serif"), ("sans_serif", "Block"), ("display", "Display")]
@@ -932,10 +941,10 @@ def _stitch_element(e, sub, P, density, scale=1.0):
 def layout_text(el, family, P, density=1.0, stitch=True, with_owner=False):
     """Text element -> (objects [[(x,y) mm]], (w, h), font, warnings). Objects are centred on (0,0)."""
     text = el.get("text", "") or " "
-    cap = float(el.get("height_mm", 10))
+    cap = num(el.get("height_mm"), 10)
     f = pick_variant(family, cap)
     s = cap / f.cap_mm if f.cap_mm > 0 else 1
-    ls = float(el.get("letter_spacing", 0)) * cap
+    ls = num(el.get("letter_spacing"), 0) * cap
     lines = text.split("\n")
     line_h = (f.meta.get("leading", 100) or 100) * f.mm * s
     placed = []  # (line_idx, element dict with scaled/translated subpaths)
@@ -967,7 +976,7 @@ def layout_text(el, family, P, density=1.0, stitch=True, with_owner=False):
     W = max(widths) if widths else 0
     align = el.get("align", "center")
     objs, shapes_only = [], []
-    arc = float(el.get("arc", 0))
+    arc = num(el.get("arc"), 0)
     pkey = (P.font_pull_extra, P.font_min_underlay, P.satin_max_width, P.fill_angle, P.fill_spacing, round(density, 3)) if P else None
     for li, items in enumerate(placed):
         off = {"left": 0, "right": W - widths[li]}.get(align, (W - widths[li]) / 2)

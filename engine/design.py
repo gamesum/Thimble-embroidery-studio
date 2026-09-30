@@ -27,6 +27,15 @@ IMAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 _cache = {}
 
 
+
+def num(v, default=0.0):
+    """A number from a design piece; empty/None/garbage falls back to the default."""
+    try:
+        f = float(v)
+        return f if f == f else float(default)  # NaN -> default
+    except (TypeError, ValueError):
+        return float(default)
+
 # ----------------------------------------------------------------------------- threads
 
 def hex_to_rgb(h):
@@ -103,9 +112,9 @@ def element_layers(el):
     t = el.get("type")
     style = el.get("style", "auto")
     if t == "text":
-        args = (el.get("text", "") or " ", el.get("font", "Montserrat Bold"), float(el.get("height_mm", 10)),
-                float(el.get("letter_spacing", 0.0)), float(el.get("line_spacing", 1.25)),
-                el.get("align", "center"), float(el.get("arc", 0)))
+        args = (el.get("text", "") or " ", el.get("font", "Montserrat Bold"), num(el.get("height_mm"), 10),
+                num(el.get("letter_spacing"), 0.0), num(el.get("line_spacing"), 1.25),
+                el.get("align", "center"), num(el.get("arc"), 0))
         if not _has_letter_colors(el):
             m, _ = raster.text_mask(*args)
             return _with_outline(el, m, style)
@@ -117,8 +126,8 @@ def element_layers(el):
                 layers.append((color, sub, (0, 0), style))
         return _with_outline(el, m, style, layers)
     if t == "shape":
-        m = shape_mask(el.get("kind", "heart"), float(el.get("width_mm", 20)), float(el.get("height_mm", 20)),
-                       float(el.get("stroke_mm", 1.2)))
+        m = shape_mask(el.get("kind", "heart"), num(el.get("width_mm"), 20), num(el.get("height_mm"), 20),
+                       num(el.get("stroke_mm"), 1.2))
         return _with_outline(el, m, style)
     if t == "vector":
         return vector_layers(el)
@@ -126,7 +135,7 @@ def element_layers(el):
         im = raster.load_image(os.path.join(IMAGE_DIR, el["image_id"]))
         cols = el.get("colors") or []
         pal = [tuple(c["rgb"]) for c in cols] or None
-        pal, masks, _, labels = raster.image_masks(im, float(el.get("width_mm", 80)), pal)
+        pal, masks, _, labels = raster.image_masks(im, num(el.get("width_mm"), 80), pal)
         bg = raster.background_index(labels)
         out = []
         for i, m in enumerate(masks):
@@ -147,8 +156,8 @@ def split_vector(el, by_color=False):
     snow caps on their mountain); a line merely crossing a filled shape doesn't join them."""
     from shapely.geometry import Polygon, LineString, Point
     parts = el.get("parts", [])
-    w = float(el.get("width_mm", 40))
-    asp = float(el.get("aspect", 0.5))
+    w = num(el.get("width_mm"), 40)
+    asp = num(el.get("aspect"), 0.5)
     geoms = []
     for p in parts:
         pts = p.get("points", [])
@@ -193,7 +202,7 @@ def split_vector(el, by_color=False):
             groups.setdefault((p.get("color") or "").lower(), []).append(i)
         if len(groups) < 2:
             return [el]
-    rot = math.radians(float(el.get("rotation", 0)))
+    rot = math.radians(num(el.get("rotation"), 0))
     out = []
     for idx in sorted(groups.values(), key=lambda g: g[0]):
         sub = [parts[i] for i in idx]
@@ -213,8 +222,8 @@ def split_vector(el, by_color=False):
             new.append(q)
         # new centre, in the (possibly turned) element's frame
         dx, dy = ((u0 + u1) / 2 - 0.5) * w, ((v0 + v1) / 2 - asp / 2) * w
-        cx = float(el.get("x", 0)) + dx * math.cos(rot) - dy * math.sin(rot)
-        cy = float(el.get("y", 0)) + dx * math.sin(rot) + dy * math.cos(rot)
+        cx = num(el.get("x"), 0) + dx * math.cos(rot) - dy * math.sin(rot)
+        cy = num(el.get("y"), 0) + dx * math.sin(rot) + dy * math.cos(rot)
         kinds = {p["type"] for p in sub}
         name = "Lights" if "circle" in kinds and len(sub) > 2 else "Line" if kinds == {"polyline"} else "Shapes"
         if len({(p.get("color") or "").lower() for p in sub}) == 1 and len(groups) > 1 and by_color:
@@ -228,8 +237,8 @@ def vector_layers(el):
     """Flat geometry (polygons, lines, dots) -> one mask per thread colour, in sewing order.
     Later colours sit on top; the parts underneath are knocked out there (with 0.4 mm overlap) so
     thread doesn't pile up - the way digitizers layer logo artwork."""
-    w = float(el.get("width_mm", 40))
-    asp = float(el.get("aspect", 0.5))
+    w = num(el.get("width_mm"), 40)
+    asp = num(el.get("aspect"), 0.5)
     # frame: the element box, grown evenly on each side to hold any part that pokes out
     # (kept symmetric so the element's centre stays the box centre)
     ext_u, ext_v = 0.0, 0.0
@@ -306,7 +315,7 @@ def _with_outline(el, m, style, layers=None):
     pad = int(round((w + 1.5) * RES)) + 2
     main = [(c, lm, (pad, pad), st) for c, lm, _, st in layers]
     first = bool(ol.get("first"))
-    gap = float(ol.get("gap_mm", -0.3)) + (FIRST_SHIFT if first else 0.0)
+    gap = num(ol.get("gap_mm"), -0.3) + (FIRST_SHIFT if first else 0.0)
     border = [(ol.get("color", "#000000"), np.pad(m, pad), (0, 0),
                "border:%g:%g%s" % (w, gap, ":first" if first else ""))]
     # sewn first: the letters go on top and hide the border's hops between rings
@@ -425,7 +434,7 @@ def _emb_text_blocks(el, fam, P):
     ol = el.get("outline") or {}
     bw = float(ol.get("width_mm") or 0)
     if bw > 0:
-        gap = float(ol.get("gap_mm", -0.3))
+        gap = num(ol.get("gap_mm"), -0.3)
         m, (x0, y0) = embfont.outline_mask(shapes, bw + 1.5, RES)
         # close the counters between letters so the border hugs the word, like the TTF path does
         first = bool(ol.get("first"))
@@ -468,13 +477,13 @@ def build(layout, progress=None):
             sub = lambda f, msg, idx=idx, label=label: progress((idx + f) / max(1, len(els)), "%s: %s" % (label, msg) if label else msg)
             sub(0, "starting")
         blocks, (w, h) = element_blocks(el, P, stitch_key(layout), sub)
-        x0, y0 = float(el.get("x", 0)), float(el.get("y", 0))
-        rot = math.radians(float(el.get("rotation", 0)))
+        x0, y0 = num(el.get("x"), 0), num(el.get("y"), 0)
+        rot = math.radians(num(el.get("rotation"), 0))
         c, s = math.cos(rot), math.sin(rot)
         for b in blocks:
             objs = [[(x0 + px * c - py * s, y0 + px * s + py * c) for px, py in o] for o in b["objects"]]
             all_blocks.append(dict(color=b["color"], objects=objs, kinds=b["kinds"], element=idx))
-        boxes.append(dict(index=idx, id=el.get("id"), x=x0, y=y0, w=w, h=h, rotation=float(el.get("rotation", 0))))
+        boxes.append(dict(index=idx, id=el.get("id"), x=x0, y=y0, w=w, h=h, rotation=num(el.get("rotation"), 0)))
     if layout.get("group_colors", True):
         first = {}
         for b in all_blocks:
@@ -562,13 +571,13 @@ def stats(blocks, layout, pattern):
         warnings.append("Off the %gx%g mm hoop by %s. Move or shrink it before saving." % (
             hoop[0], hoop[1], ", ".join("%.1f mm on the %s" % (v, k) for k, v in over.items())))
     for el in layout.get("elements", []):
-        if el.get("type") == "text" and float(el.get("height_mm", 10)) < 5 and not embfont.family(el.get("font")):
+        if el.get("type") == "text" and num(el.get("height_mm"), 10) < 5 and not embfont.family(el.get("font")):
             warnings.append('"%s" is %.1f mm tall - lettering under 5 mm may not stitch cleanly.'
                             % (el.get("text", "")[:20], float(el.get("height_mm"))))
         fam = embfont.family(el.get("font")) if el.get("type") == "text" else None
         if fam:
             lo, hi = embfont.size_range(fam)
-            hmm = float(el.get("height_mm", 10))
+            hmm = num(el.get("height_mm"), 10)
             if hmm < lo * 0.95 or hmm > hi * 1.05:
                 warnings.append("%s is digitized for %.0f-%.0f mm letters; at %.1f mm it may sew poorly. Pick another font or resize."
                                 % (fam["name"].lstrip("✦ "), lo, hi, hmm))

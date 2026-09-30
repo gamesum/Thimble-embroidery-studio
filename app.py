@@ -57,6 +57,11 @@ def on_value_error(e):
 @app.errorhandler(Exception)
 def on_error(e):
     traceback.print_exc()
+    try:  # keep the details for troubleshooting (the console window is easy to lose)
+        with open(os.path.join(OUT, "error.log"), "a", encoding="utf-8") as fh:
+            fh.write("\n=== %s %s %s\n%s" % (time.strftime("%Y-%m-%d %H:%M:%S"), request.method, request.path, traceback.format_exc()))
+    except Exception:
+        pass
     return jsonify(error=str(e)), 500
 
 

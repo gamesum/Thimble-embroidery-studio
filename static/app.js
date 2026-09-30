@@ -988,7 +988,7 @@ function makeWeave(color) {
 function fitView() {
   const r = cv.getBoundingClientRect();
   const [W, H] = S.layout.hoop;
-  const frame = 30; // mm of hoop around the field (the bottom band is the widest)
+  const frame = 22; // mm of hoop around the field
   view.s = Math.min(r.width / (W + frame * 2), r.height / (H + frame * 2)) * S.zoom;
   view.ox = r.width / 2 + S.pan.x;
   view.oy = r.height / 2 + S.pan.y;
@@ -1010,40 +1010,28 @@ function roundRect(g, x, y, w, h, r) {
 }
 
 function drawHoop() {
-  // modelled on the Designer I plastic hoop: beige outer frame, inner ring gripping the fabric,
-  // centre notches on each side and a wider bottom band stamped with the field size
   const r = cv.getBoundingClientRect();
   ctx.clearRect(0, 0, r.width, r.height);
   const [W, H] = S.layout.hoop, s = view.s;
-  const pad = 9;                                   // mm of fabric visible beyond the sewing field
-  const side = 8, top = 8, bottom = 17, lip = 2.6; // mm: frame widths, inner-ring lip
+  const pad = 9, ring = 7; // mm: fabric beyond the field, wooden ring thickness
   const [x0, y0] = mm2px(-W / 2 - pad, -H / 2 - pad);
-  const fw = (W + pad * 2) * s, fh = (H + pad * 2) * s, rr = 11 * s;
-  const ox0 = x0 - (side + lip) * s, oy0 = y0 - (top + lip) * s;
-  const ow = fw + 2 * (side + lip) * s, oh = fh + (top + bottom + 2 * lip) * s, orr = rr + (side + lip) * s;
-  // outer frame + soft shadow on the table
+  const fw = (W + pad * 2) * s, fh = (H + pad * 2) * s, rr = 16 * s;
+  // shadow + wooden ring
   ctx.save();
-  ctx.shadowColor = "rgba(50,35,20,.32)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 9;
-  roundRect(ctx, ox0, oy0, ow, oh, orr);
-  const plastic = ctx.createLinearGradient(ox0, oy0, ox0, oy0 + oh);
-  plastic.addColorStop(0, "#e9e1d2"); plastic.addColorStop(0.5, "#ddd3c1"); plastic.addColorStop(1, "#cbbfa9");
-  ctx.fillStyle = plastic; ctx.fill();
+  ctx.shadowColor = "rgba(60,35,15,.35)"; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
+  roundRect(ctx, x0 - ring * s, y0 - ring * s, fw + ring * 2 * s, fh + ring * 2 * s, rr + ring * s);
+  const wood = ctx.createLinearGradient(x0, y0 - ring * s, x0, y0 + fh + ring * s);
+  wood.addColorStop(0, "#b98452"); wood.addColorStop(0.5, "#9a6437"); wood.addColorStop(1, "#7a4b28");
+  ctx.fillStyle = wood; ctx.fill();
   ctx.restore();
+  // wood grain
   ctx.save();
-  roundRect(ctx, ox0, oy0, ow, oh, orr);
-  ctx.strokeStyle = "rgba(120,100,70,.55)"; ctx.lineWidth = 1.2; ctx.stroke();
-  // moulded bevel: light on the top edge, shade along the bottom
-  roundRect(ctx, ox0 + 1.5, oy0 + 1.5, ow - 3, oh - 3, orr - 1.5);
-  ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.restore();
-  // inner ring (the part that clamps the fabric), slightly darker and raised
-  const ix0 = x0 - lip * s, iy0 = y0 - lip * s, iw = fw + 2 * lip * s, ih = fh + 2 * lip * s, irr = rr + lip * s;
-  ctx.save();
-  roundRect(ctx, ix0, iy0, iw, ih, irr);
-  const ring = ctx.createLinearGradient(ix0, iy0, ix0, iy0 + ih);
-  ring.addColorStop(0, "#d6ccb8"); ring.addColorStop(1, "#c4b79f");
-  ctx.fillStyle = ring; ctx.fill();
-  ctx.strokeStyle = "rgba(110,90,62,.5)"; ctx.lineWidth = 1; ctx.stroke();
+  roundRect(ctx, x0 - ring * s, y0 - ring * s, fw + ring * 2 * s, fh + ring * 2 * s, rr + ring * s); ctx.clip();
+  ctx.strokeStyle = "rgba(60,30,10,.18)"; ctx.lineWidth = 1;
+  for (let i = 0; i < 9; i++) {
+    ctx.beginPath(); const yy = y0 - ring * s + (i + 0.5) * (fh + ring * 2 * s) / 9;
+    ctx.moveTo(x0 - ring * s, yy); ctx.bezierCurveTo(x0 + fw * 0.3, yy - 6, x0 + fw * 0.7, yy + 6, x0 + fw + ring * s, yy); ctx.stroke();
+  }
   ctx.restore();
   // fabric
   if (!weave || weave._c !== S.layout.fabric_color) { weave = makeWeave(S.layout.fabric_color || "#d9d5cc"); weave._c = S.layout.fabric_color; }
@@ -1051,39 +1039,16 @@ function drawHoop() {
   ctx.fillStyle = weave; ctx.fill();
   ctx.save(); ctx.clip();
   const inner = ctx.createRadialGradient(view.ox, view.oy, Math.min(fw, fh) * 0.3, view.ox, view.oy, Math.max(fw, fh) * 0.75);
-  inner.addColorStop(0, "rgba(0,0,0,0)"); inner.addColorStop(1, "rgba(40,25,10,.14)");
+  inner.addColorStop(0, "rgba(0,0,0,0)"); inner.addColorStop(1, "rgba(40,20,5,.16)");
   ctx.fillStyle = inner; ctx.fillRect(x0, y0, fw, fh);
-  // the ring's shadow falling onto the fabric
-  ctx.shadowColor = "rgba(40,28,15,.45)"; ctx.shadowBlur = 7 * Math.min(1.5, s / 4); ctx.shadowOffsetY = 2;
-  roundRect(ctx, x0 - 20, y0 - 20, fw + 40, fh + 40, rr + 20); roundRect(ctx, x0, y0, fw, fh, rr);
-  ctx.fillStyle = "rgba(0,0,0,.001)"; ctx.fill("evenodd");
   ctx.restore();
-  // alignment notches in the middle of each side of the inner ring
-  ctx.save();
-  ctx.fillStyle = "rgba(95,78,52,.55)";
-  const nw = 4 * s, nd = lip * s * 0.9;
-  ctx.fillRect(view.ox - nw / 2, iy0, nw, nd);                 // top
-  ctx.fillRect(view.ox - nw / 2, iy0 + ih - nd, nw, nd);       // bottom
-  ctx.fillRect(ix0, view.oy - nw / 2, nd, nw);                 // left
-  ctx.fillRect(ix0 + iw - nd, view.oy - nw / 2, nd, nw);       // right
-  ctx.restore();
-  // size stamped into the wide bottom band (embossed look)
-  const label = U.inch ? `${U.show(W)} × ${U.show(H)} in` : `${W}×${H}`;
-  const fs = Math.max(9, Math.min(bottom * s * 0.42, 26));
-  const lx = view.ox + W * s * 0.16, ly = iy0 + ih + (bottom - lip) * s * 0.55;
-  ctx.save();
-  ctx.font = `600 ${fs}px system-ui, "Segoe UI", sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.fillText(label, lx + 0.8, ly + 0.8);
-  ctx.fillStyle = "rgba(110,92,64,.55)"; ctx.fillText(label, lx, ly);
-  // two moulded screw bosses on the band
-  for (const dx of [-0.43, 0.43]) {
-    const bx = view.ox + dx * W * s, by = ly;
-    const g = ctx.createRadialGradient(bx - 1, by - 1, 1, bx, by, 3.2 * s);
-    g.addColorStop(0, "#efe8dc"); g.addColorStop(1, "#c3b69e");
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, 3 * s, 0, 7); ctx.fill();
-    ctx.strokeStyle = "rgba(110,90,62,.45)"; ctx.lineWidth = 1; ctx.stroke();
-  }
-  ctx.restore();
+  // brass clamp
+  const [cx, cy] = mm2px(0, -H / 2 - pad - ring);
+  const bw = 16 * s, bh = 5 * s;
+  const brass = ctx.createLinearGradient(cx, cy - bh, cx, cy + bh);
+  brass.addColorStop(0, "#e2c275"); brass.addColorStop(1, "#9c7a2c");
+  ctx.fillStyle = brass; roundRect(ctx, cx - bw / 2, cy - bh * 0.8, bw, bh * 1.6, 2 * s); ctx.fill();
+  ctx.fillStyle = "#7d6122"; ctx.beginPath(); ctx.arc(cx, cy, 1.6 * s, 0, 7); ctx.fill();
   // measuring grid (like a slicer's build plate)
   {
     const stepMm = U.inch ? (view.s < 2.2 ? 50.8 : 25.4) : (view.s < 2.2 ? 50 : 20), g0 = px2mm(x0, y0), g1 = px2mm(x0 + fw, y0 + fh);
