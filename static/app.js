@@ -988,7 +988,7 @@ function makeWeave(color) {
 function fitView() {
   const r = cv.getBoundingClientRect();
   const [W, H] = S.layout.hoop;
-  const frame = 22; // mm of hoop around the field
+  const frame = 30; // mm of hoop around the field (the bottom band is the widest)
   view.s = Math.min(r.width / (W + frame * 2), r.height / (H + frame * 2)) * S.zoom;
   view.ox = r.width / 2 + S.pan.x;
   view.oy = r.height / 2 + S.pan.y;
@@ -1010,28 +1010,40 @@ function roundRect(g, x, y, w, h, r) {
 }
 
 function drawHoop() {
+  // modelled on the Designer I plastic hoop: beige outer frame, inner ring gripping the fabric,
+  // centre notches on each side and a wider bottom band stamped with the field size
   const r = cv.getBoundingClientRect();
   ctx.clearRect(0, 0, r.width, r.height);
   const [W, H] = S.layout.hoop, s = view.s;
-  const pad = 9, ring = 7; // mm: fabric beyond the field, wooden ring thickness
+  const pad = 9;                                   // mm of fabric visible beyond the sewing field
+  const side = 8, top = 8, bottom = 17, lip = 2.6; // mm: frame widths, inner-ring lip
   const [x0, y0] = mm2px(-W / 2 - pad, -H / 2 - pad);
-  const fw = (W + pad * 2) * s, fh = (H + pad * 2) * s, rr = 16 * s;
-  // shadow + wooden ring
+  const fw = (W + pad * 2) * s, fh = (H + pad * 2) * s, rr = 11 * s;
+  const ox0 = x0 - (side + lip) * s, oy0 = y0 - (top + lip) * s;
+  const ow = fw + 2 * (side + lip) * s, oh = fh + (top + bottom + 2 * lip) * s, orr = rr + (side + lip) * s;
+  // outer frame + soft shadow on the table
   ctx.save();
-  ctx.shadowColor = "rgba(60,35,15,.35)"; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
-  roundRect(ctx, x0 - ring * s, y0 - ring * s, fw + ring * 2 * s, fh + ring * 2 * s, rr + ring * s);
-  const wood = ctx.createLinearGradient(x0, y0 - ring * s, x0, y0 + fh + ring * s);
-  wood.addColorStop(0, "#b98452"); wood.addColorStop(0.5, "#9a6437"); wood.addColorStop(1, "#7a4b28");
-  ctx.fillStyle = wood; ctx.fill();
+  ctx.shadowColor = "rgba(50,35,20,.32)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 9;
+  roundRect(ctx, ox0, oy0, ow, oh, orr);
+  const plastic = ctx.createLinearGradient(ox0, oy0, ox0, oy0 + oh);
+  plastic.addColorStop(0, "#e9e1d2"); plastic.addColorStop(0.5, "#ddd3c1"); plastic.addColorStop(1, "#cbbfa9");
+  ctx.fillStyle = plastic; ctx.fill();
   ctx.restore();
-  // wood grain
   ctx.save();
-  roundRect(ctx, x0 - ring * s, y0 - ring * s, fw + ring * 2 * s, fh + ring * 2 * s, rr + ring * s); ctx.clip();
-  ctx.strokeStyle = "rgba(60,30,10,.18)"; ctx.lineWidth = 1;
-  for (let i = 0; i < 9; i++) {
-    ctx.beginPath(); const yy = y0 - ring * s + (i + 0.5) * (fh + ring * 2 * s) / 9;
-    ctx.moveTo(x0 - ring * s, yy); ctx.bezierCurveTo(x0 + fw * 0.3, yy - 6, x0 + fw * 0.7, yy + 6, x0 + fw + ring * s, yy); ctx.stroke();
-  }
+  roundRect(ctx, ox0, oy0, ow, oh, orr);
+  ctx.strokeStyle = "rgba(120,100,70,.55)"; ctx.lineWidth = 1.2; ctx.stroke();
+  // moulded bevel: light on the top edge, shade along the bottom
+  roundRect(ctx, ox0 + 1.5, oy0 + 1.5, ow - 3, oh - 3, orr - 1.5);
+  ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
+  // inner ring (the part that clamps the fabric), slightly darker and raised
+  const ix0 = x0 - lip * s, iy0 = y0 - lip * s, iw = fw + 2 * lip * s, ih = fh + 2 * lip * s, irr = rr + lip * s;
+  ctx.save();
+  roundRect(ctx, ix0, iy0, iw, ih, irr);
+  const ring = ctx.createLinearGradient(ix0, iy0, ix0, iy0 + ih);
+  ring.addColorStop(0, "#d6ccb8"); ring.addColorStop(1, "#c4b79f");
+  ctx.fillStyle = ring; ctx.fill();
+  ctx.strokeStyle = "rgba(110,90,62,.5)"; ctx.lineWidth = 1; ctx.stroke();
   ctx.restore();
   // fabric
   if (!weave || weave._c !== S.layout.fabric_color) { weave = makeWeave(S.layout.fabric_color || "#d9d5cc"); weave._c = S.layout.fabric_color; }
@@ -1039,20 +1051,43 @@ function drawHoop() {
   ctx.fillStyle = weave; ctx.fill();
   ctx.save(); ctx.clip();
   const inner = ctx.createRadialGradient(view.ox, view.oy, Math.min(fw, fh) * 0.3, view.ox, view.oy, Math.max(fw, fh) * 0.75);
-  inner.addColorStop(0, "rgba(0,0,0,0)"); inner.addColorStop(1, "rgba(40,20,5,.16)");
+  inner.addColorStop(0, "rgba(0,0,0,0)"); inner.addColorStop(1, "rgba(40,25,10,.14)");
   ctx.fillStyle = inner; ctx.fillRect(x0, y0, fw, fh);
+  // the ring's shadow falling onto the fabric
+  ctx.shadowColor = "rgba(40,28,15,.45)"; ctx.shadowBlur = 7 * Math.min(1.5, s / 4); ctx.shadowOffsetY = 2;
+  roundRect(ctx, x0 - 20, y0 - 20, fw + 40, fh + 40, rr + 20); roundRect(ctx, x0, y0, fw, fh, rr);
+  ctx.fillStyle = "rgba(0,0,0,.001)"; ctx.fill("evenodd");
   ctx.restore();
-  // brass clamp
-  const [cx, cy] = mm2px(0, -H / 2 - pad - ring);
-  const bw = 16 * s, bh = 5 * s;
-  const brass = ctx.createLinearGradient(cx, cy - bh, cx, cy + bh);
-  brass.addColorStop(0, "#e2c275"); brass.addColorStop(1, "#9c7a2c");
-  ctx.fillStyle = brass; roundRect(ctx, cx - bw / 2, cy - bh * 0.8, bw, bh * 1.6, 2 * s); ctx.fill();
-  ctx.fillStyle = "#7d6122"; ctx.beginPath(); ctx.arc(cx, cy, 1.6 * s, 0, 7); ctx.fill();
+  // alignment notches in the middle of each side of the inner ring
+  ctx.save();
+  ctx.fillStyle = "rgba(95,78,52,.55)";
+  const nw = 4 * s, nd = lip * s * 0.9;
+  ctx.fillRect(view.ox - nw / 2, iy0, nw, nd);                 // top
+  ctx.fillRect(view.ox - nw / 2, iy0 + ih - nd, nw, nd);       // bottom
+  ctx.fillRect(ix0, view.oy - nw / 2, nd, nw);                 // left
+  ctx.fillRect(ix0 + iw - nd, view.oy - nw / 2, nd, nw);       // right
+  ctx.restore();
+  // size stamped into the wide bottom band (embossed look)
+  const label = U.inch ? `${U.show(W)} × ${U.show(H)} in` : `${W}×${H}`;
+  const fs = Math.max(9, Math.min(bottom * s * 0.42, 26));
+  const lx = view.ox + W * s * 0.16, ly = iy0 + ih + (bottom - lip) * s * 0.55;
+  ctx.save();
+  ctx.font = `600 ${fs}px system-ui, "Segoe UI", sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.fillText(label, lx + 0.8, ly + 0.8);
+  ctx.fillStyle = "rgba(110,92,64,.55)"; ctx.fillText(label, lx, ly);
+  // two moulded screw bosses on the band
+  for (const dx of [-0.43, 0.43]) {
+    const bx = view.ox + dx * W * s, by = ly;
+    const g = ctx.createRadialGradient(bx - 1, by - 1, 1, bx, by, 3.2 * s);
+    g.addColorStop(0, "#efe8dc"); g.addColorStop(1, "#c3b69e");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, 3 * s, 0, 7); ctx.fill();
+    ctx.strokeStyle = "rgba(110,90,62,.45)"; ctx.lineWidth = 1; ctx.stroke();
+  }
+  ctx.restore();
   // measuring grid (like a slicer's build plate)
   {
-    const stepMm = U.inch ? (view.s < 2.2 ? 25.4 : 12.7) : (view.s < 2.2 ? 20 : 10), g0 = px2mm(x0, y0), g1 = px2mm(x0 + fw, y0 + fh);
-    const majEvery = U.inch ? (view.s < 2.2 ? 1 : 2) : 5; // strong line every inch / every 50 mm
+    const stepMm = U.inch ? (view.s < 2.2 ? 50.8 : 25.4) : (view.s < 2.2 ? 50 : 20), g0 = px2mm(x0, y0), g1 = px2mm(x0 + fw, y0 + fh);
+    const majEvery = U.inch ? 2 : (view.s < 2.2 ? 2 : 5); // strong line every 2 in / 100 mm (plus the centre lines)
     const gx0 = g0[0], gy0 = g0[1], gx1 = g1[0], gy1 = g1[1];
     ctx.save();
     roundRect(ctx, x0, y0, fw, fh, rr); ctx.clip(); // stay on the fabric
@@ -1761,7 +1796,8 @@ $$('input[name=diskMode]').forEach((r) => (r.onchange = diskStatus));
 $("#diskWrite").onclick = writeDisk;
 $("#btnSettings").onclick = openSettings;
 $("#setSave").onclick = saveSettings;
-$("#btnOpen").onclick = openProjects;
+$("#btnOpen").onclick = () => { const f = $("#openInput"); f.value = ""; f.onchange = () => f.files[0] && openFile(f.files[0]); f.click(); };
+$("#btnRecent").onclick = openProjects;
 async function saveProject() {
   try {
     if (S.meta.hosted) webProjects.save(JSON.parse(snapshot()));
@@ -1769,13 +1805,68 @@ async function saveProject() {
     toast(`Saved project “${esc(S.layout.name)}”${S.meta.hosted ? " in this browser" : ""}.`, "good");
   } catch (e) { toast(esc(e.message), "bad"); }
 }
-$("#btnSaveAs").onclick = () => {
-  const name = (prompt("Save a copy as:", (S.layout.name || "My design") + " copy") || "").trim();
-  if (!name) return;
-  beginEdit(); S.layout.name = name; commit(true);
-  $("#designName").value = name; save_local();
-  saveProject();  // the original stays saved under its old name
-};
+// ---- project files (.thimble): the layout plus every picture it uses, so it opens anywhere
+async function projectFileBlob() {
+  const lay = JSON.parse(snapshot()), images = {};
+  const ids = new Set(lay.elements.filter((e) => e.type === "image").map((e) => e.image_id));
+  if (lay.ai_read?.image_id) ids.add(lay.ai_read.image_id);
+  for (const id of ids) {
+    try {
+      const b = await (await fetch(`/api/image/${encodeURIComponent(id)}`)).blob();
+      images[id] = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(b); });
+    } catch (e) { /* picture no longer on the server: the layout still saves */ }
+  }
+  return new Blob([JSON.stringify({ thimble: 1, saved: new Date().toISOString(), layout: lay, images })], { type: "application/json" });
+}
+async function saveProjectFile() {
+  const name = ((S.layout.name || "My design").replace(/[\\/:*?"<>|]+/g, "").trim() || "My design") + ".thimble";
+  busy("now", "Packing up your project…");
+  try {
+    const blob = await projectFileBlob();
+    if (window.showSaveFilePicker) {
+      // Chrome/Edge: a real "Save as" window to pick the folder and name
+      const h = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "Thimble project", accept: { "application/json": [".thimble"] } }] });
+      const w = await h.createWritable(); await w.write(blob); await w.close();
+      const nm = h.name.replace(/\.thimble$/i, "");
+      if (nm && nm !== S.layout.name) { beginEdit(); S.layout.name = nm; commit(true); $("#designName").value = nm; save_local(); }
+      toast(`Saved ${esc(h.name)}.`, "good");
+    } else {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast(`Saved ${esc(name)} to your Downloads.`, "good");
+    }
+  } catch (e) { if (e.name !== "AbortError") toast(esc(e.message), "bad"); } finally { busy(false); }
+}
+async function openProjectFile(file) {
+  const data = JSON.parse(await file.text());
+  const lay = data.layout || data;  // older saves are the bare layout
+  if (!lay || !Array.isArray(lay.elements)) throw new Error("That file isn't a Thimble project.");
+  // pictures travel inside the file: put them back on the server and point the design at them
+  const remap = {};
+  for (const [id, url] of Object.entries(data.images || {})) {
+    const b = await (await fetch(url)).blob();
+    const ext = (id.split(".").pop() || "png").toLowerCase();
+    const info = await uploadPicture(new File([b], "picture." + ext, { type: b.type || "image/png" }));
+    remap[id] = info.image_id; S.images[info.image_id] = info;
+  }
+  for (const el of lay.elements) if (el.type === "image" && remap[el.image_id]) el.image_id = remap[el.image_id];
+  if (lay.ai_read?.image_id && remap[lay.ai_read.image_id]) lay.ai_read.image_id = remap[lay.ai_read.image_id];
+  commit(true); clearMulti();
+  S.layout = Object.assign(DEFAULT_LAYOUT(), lay); S.sel = -1;
+  await loadImageInfo(); afterLoad();
+  toast(`Opened “${esc(S.layout.name || file.name)}”.`, "good");
+}
+async function openFile(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (ext === "thimble" || ext === "json") {
+    busy("now", "Opening " + file.name + "…");
+    try { await openProjectFile(file); } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
+    return;
+  }
+  addPicture(file);  // pictures, SVG and embroidery files join the current design
+}
+$("#btnSaveAs").onclick = saveProjectFile;
 $("#btnSave").onclick = async () => {
   try {
     if (S.meta.hosted) webProjects.save(JSON.parse(snapshot()));
@@ -1841,7 +1932,7 @@ document.addEventListener("keydown", (e) => {
 });
 // drop a picture anywhere onto the hoop
 $("#hoopWrap").addEventListener("dragover", (e) => e.preventDefault());
-$("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) addPicture(f); }); // pictures, SVG or embroidery files
+$("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) openFile(f); }); // projects, pictures, SVG or embroidery files
 
 // ------------------------------------------------------------------ start
 (async function start() {

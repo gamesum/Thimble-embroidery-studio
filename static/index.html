@@ -37,9 +37,11 @@
       <svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
     <span class="sep"></span>
     <button class="btn ghost" id="btnNew">New</button>
-    <button class="btn ghost" id="btnOpen">Open</button>
-    <button class="btn ghost" id="btnSave">Save project</button>
-    <button class="btn ghost" id="btnSaveAs" title="Save a copy under a new name">Save as…</button>
+    <button class="btn ghost" id="btnOpen" title="Open a Thimble project, picture, SVG or embroidery file from your computer">Open…</button>
+    <button class="btn ghost" id="btnRecent" title="Projects saved in Thimble">Recent</button>
+    <button class="btn ghost" id="btnSave" title="Quick save inside Thimble">Save project</button>
+    <button class="btn ghost" id="btnSaveAs" title="Save a .thimble file wherever you like">Save as…</button>
+    <input type="file" id="openInput" accept=".thimble,.json,image/*,.heic,.heif,.svg,.100,.10o,.bro,.dat,.dsb,.dst,.dsz,.emd,.exp,.exy,.fxy,.gt,.hus,.inb,.jef,.jpx,.ksm,.max,.mit,.new,.pcd,.pcm,.pcq,.pcs,.pec,.pes,.phb,.phc,.sew,.shv,.spx,.stc,.stx,.tap,.tbf,.u01,.vp3,.xxx,.zhs,.zxy" hidden>
     <span class="sep"></span>
     <button class="btn ghost" id="btnSettings" title="Settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -204,7 +206,7 @@
 
 <dialog id="dlgOpen" class="sheet">
   <form method="dialog">
-    <h2>Open a project</h2>
+    <h2>Recent projects</h2>
     <ul id="projectList" class="project-list"></ul>
     <menu><button value="cancel" class="btn ghost">Close</button></menu>
   </form>
