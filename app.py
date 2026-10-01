@@ -49,6 +49,37 @@ def err(msg, code=400):
     return jsonify(error=msg), code
 
 
+PIC_ID = re.compile(r"^[0-9a-f]{12}\.(png|jpe?g|bmp|gif|webp|tiff?|heic|heif)$")
+
+
+def _pictures_in(body):
+    """Picture files a request needs: pictures on the hoop, or the one picture it works on."""
+    ids = set()
+    if not isinstance(body, dict):
+        return ids
+    lay = body.get("layout") if isinstance(body.get("layout"), dict) else body
+    for el in lay.get("elements") or []:
+        if isinstance(el, dict) and el.get("type") == "image" and el.get("image_id"):
+            ids.add(os.path.basename(str(el["image_id"])))
+    if body.get("type") == "image" or request.path == "/api/ai/analyze":
+        if body.get("image_id"):
+            ids.add(os.path.basename(str(body["image_id"])))
+    return ids
+
+
+@app.before_request
+def _pictures_present():
+    """The website's server forgets uploads when it restarts. Say which pictures are gone (409)
+    so the browser can send its own copies back and try again, instead of failing deep inside."""
+    if request.method != "POST" or not request.path.startswith("/api/") or not request.is_json:
+        return None
+    body = request.get_json(silent=True)
+    gone = sorted(i for i in _pictures_in(body) if not os.path.exists(os.path.join(UPLOADS, i)))
+    if gone:
+        return jsonify(error="A picture in this design needs to be added again.", missing=gone), 409
+    return None
+
+
 @app.errorhandler(ValueError)
 def on_value_error(e):
     return jsonify(error=str(e)), 400
@@ -213,6 +244,9 @@ def upload():
     if ext not in (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".heif"):
         return err("Please use a PNG, JPG, HEIC, WEBP, BMP, GIF or TIFF picture - or an SVG or embroidery file.")
     image_id = uuid.uuid4().hex[:12] + ext
+    restore = request.form.get("restore_id", "")
+    if restore and PIC_ID.match(restore):
+        image_id = restore  # the browser putting back a picture the server forgot
     path = os.path.join(UPLOADS, image_id)
     f.save(path)
     try:
@@ -578,6 +612,50 @@ def ai_key():
             c.pop("anthropic_workspace", None)
     save_config(c)
     return jsonify(ai=bool(c.get("anthropic_key")), workspace=c.get("anthropic_workspace", ""))
+
+
+@app.post("/api/ai/test")
+def ai_test():
+    """Check a key without spending anything: list the models it can use (free)."""
+    import anthropic
+    body = request.get_json(force=True)
+    if HOSTED:
+        key = (request.headers.get("X-Anthropic-Key") or "").strip()
+        ws = (request.headers.get("X-Anthropic-Workspace") or "").strip()
+    else:
+        key = (body.get("key") or "").strip() or config().get("anthropic_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        ws = (body.get("workspace") or "").strip() or config().get("anthropic_workspace", "")
+    if not key:
+        return jsonify(ok=False, msg="There's no key to test yet - paste one in the box first.")
+    if not key.startswith("sk-ant-"):
+        return jsonify(ok=False, msg="That doesn't look like an Anthropic key - it should start with sk-ant-. Copy it again from the API keys page.")
+    try:
+        client = anthropic.Anthropic(api_key=key, max_retries=1, timeout=20,
+                                     default_headers={"anthropic-workspace-id": ws} if ws else None)
+        client.models.list(limit=1)
+        return jsonify(ok=True, msg="It works! Press Save and you're all set.")
+    except anthropic.AuthenticationError:
+        return jsonify(ok=False, msg="Anthropic didn't accept that key. Make sure you copied all of it, or make a new key and try again.")
+    except anthropic.PermissionDeniedError as e:
+        m = str(e)
+        if "workspace" in m.lower():
+            return jsonify(ok=False, msg="This key was made outside a workspace. Easiest fix: make a new key and choose the Default workspace.")
+        return jsonify(ok=False, msg="Anthropic says this key isn't allowed to do that. Check your account on the Anthropic website.")
+    except anthropic.APIConnectionError:
+        return jsonify(ok=False, msg="Couldn't reach Anthropic - check the internet connection and try again.")
+    except Exception as e:
+        return jsonify(ok=False, msg="Anthropic said: %s" % str(e)[:200])
+
+
+@app.post("/api/ai/forget")
+def ai_forget():
+    if HOSTED:
+        return err("Not available on the website.", 404)
+    c = config()
+    c.pop("anthropic_key", None)
+    c.pop("anthropic_workspace", None)
+    save_config(c)
+    return jsonify(ai=False, workspace="")
 
 
 @app.post("/api/ai/analyze")

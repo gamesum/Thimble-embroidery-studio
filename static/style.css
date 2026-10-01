@@ -33,8 +33,8 @@ body {
   background-color: var(--linen);
   /* woven linen */
   background-image:
-    repeating-linear-gradient(0deg, rgba(120, 95, 70, .05) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgba(120, 95, 70, .045) 0 1px, transparent 1px 4px);
+    repeating-linear-gradient(0deg, rgba(120, 95, 70, .06) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(120, 95, 70, .06) 0 1px, transparent 1px 24px);
   display: flex; flex-direction: column; overflow: hidden;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -135,18 +135,21 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .empty-note { color: var(--ink-3); font-family: "Hand", cursive; font-size: 18px; margin: 4px 2px; }
 
 /* ---------- stage ---------- */
-.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 10px; }
-.stage-tools { display: flex; align-items: center; gap: 14px; }
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 10px; position: relative; }
+/* the zoom/sew buttons float over the top of the hoop area, so the hoop is never sliced off under them */
+.stage-tools { display: flex; align-items: center; gap: 14px; position: absolute; top: 0; left: 0; right: 0; z-index: 4; pointer-events: none; }
+.stage-tools > * { pointer-events: auto; }
 .stage-tools .btn.sew { margin-left: auto; }
 .seg { display: flex; align-items: center; gap: 2px; background: var(--paper); border-radius: 10px; padding: 2px; box-shadow: var(--shadow); }
 #zoomLabel { min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13px; }
 .toggle { display: flex; align-items: center; gap: 6px; color: var(--ink-2); cursor: pointer; user-select: none; }
-.hoop-wrap { flex: 1; position: relative; min-height: 0; border-radius: 18px; overflow: hidden; }
+.hoop-wrap { flex: 1; position: relative; min-height: 0; overflow: hidden; }
 /* absolutely placed so the canvas's pixel size can never feed back into the page layout */
 #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; touch-action: none; }
 .busy {
-  position: absolute; right: 16px; top: 14px; background: rgba(251, 248, 242, .94); border-radius: 20px; padding: 6px 14px 6px 10px;
-  display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow); font-family: "Hand", cursive; font-size: 17px;
+  position: absolute; right: 16px; top: 62px; background: rgba(251, 248, 242, .98); border-radius: 22px; padding: 10px 20px 10px 12px;
+  display: flex; align-items: center; gap: 12px; box-shadow: 0 8px 28px rgba(60, 35, 15, .28); font-family: "Hand", cursive; font-size: 21px;
+  border: 2px solid #b08a5c; z-index: 5;
 }
 .needle { width: 18px; height: 18px; position: relative; }
 .needle::before { content: ""; position: absolute; left: 8px; top: 0; width: 2px; height: 14px; background: var(--steel); border-radius: 2px; animation: bob .45s ease-in-out infinite; }
@@ -297,10 +300,11 @@ dialog hr { border: 0; border-top: 1px dashed var(--stitch); margin: 14px 0; }
 .letter-chip.on { background: #bfb4a1; }
 
 /* loading animation (hand threading a needle) */
-.busy .loader { width: 40px; height: 40px; margin: -6px -2px -6px -4px; }
-.busy.big { right: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); flex-direction: column; gap: 2px;
-  padding: 14px 26px 16px; border-radius: 18px; font-size: 21px; z-index: 5; }
-.busy.big .loader { width: 130px; height: 130px; margin: 0; }
+.busy .loader { width: 64px; height: 64px; margin: -8px -4px -8px -4px; }
+.busy.big { right: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); flex-direction: column; gap: 6px;
+  padding: 22px 40px 26px; border-radius: 24px; font-size: 28px; z-index: 5;
+  box-shadow: 0 0 0 100vmax rgba(40, 25, 10, .22), 0 14px 44px rgba(40, 25, 10, .4); }
+.busy.big .loader { width: 190px; height: 190px; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .busy .loader { display: none; } }
 
 /* ---- tidy properties panel: collapsible sections, compact thread pickers */
@@ -337,11 +341,11 @@ details.sec > summary:hover .t { color: var(--walnut); }
 .vcolor input[type=color] { width: 34px; height: 28px; padding: 0 2px; border: 1px solid #ddd0bc; border-radius: 8px; background: #fff; }
 
 /* progress inside the busy badge */
-.busy-words { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 150px; }
-.busy.big .busy-words { align-items: center; min-width: 240px; }
-#busyPct { font-family: system-ui, sans-serif; font-size: 13px; color: var(--walnut); font-variant-numeric: tabular-nums; }
-#busySub { font-family: system-ui, sans-serif; font-size: 11px; color: var(--ink-3); max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.busy-track { display: block; width: 100%; height: 4px; border-radius: 3px; background: rgba(107, 68, 35, .15); overflow: hidden; }
+.busy-words { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 190px; }
+.busy.big .busy-words { align-items: center; min-width: 320px; }
+#busyPct { font-family: system-ui, sans-serif; font-size: 16px; font-weight: 600; color: var(--walnut); font-variant-numeric: tabular-nums; }
+#busySub { font-family: system-ui, sans-serif; font-size: 13px; color: var(--ink-3); max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.busy-track { display: block; width: 100%; height: 8px; border-radius: 5px; background: rgba(107, 68, 35, .15); overflow: hidden; }
 #busyBar { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #b08a5c, #6b4423); border-radius: 3px; transition: width .3s; }
 
 /* thread chart: pick spools to merge */
@@ -370,3 +374,20 @@ details.sec > summary:hover .t { color: var(--walnut); }
 .recreate-card .btn { margin: 4px 6px 4px 0; }
 
 .stretch-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* AI key setup: big, plain, step by step */
+.ai-card { border: 2px solid #d9c7ab; border-radius: 14px; padding: 14px 16px; background: rgba(255, 252, 245, .9); }
+.ai-card h3 { margin: 0 0 4px; font-size: 18px; }
+.ai-status { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.ai-status.ok { background: #e3f1e0; color: #2f6b2a; }
+.ai-status.no { background: #f6e6d8; color: #8a4b1c; }
+.ai-steps { margin: 6px 0 10px; padding-left: 22px; font-size: 15px; line-height: 1.55; }
+.ai-steps li { margin-bottom: 6px; }
+.ai-steps b { color: var(--walnut); }
+.ai-keyrow { display: flex; gap: 8px; align-items: center; }
+.ai-keyrow input { flex: 1; font-size: 16px; padding: 10px 12px; }
+.ai-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.ai-card details { margin-top: 10px; font-size: 13px; }
+.ai-card .safe { font-size: 13px; color: var(--ink-3); margin: 8px 0 0; }
+/* the floating toolbar stays readable over any fabric */
+.stage-tools .toggle { background: rgba(251, 248, 242, .95); padding: 6px 12px; border-radius: 12px; box-shadow: 0 2px 8px rgba(60, 35, 15, .12); }

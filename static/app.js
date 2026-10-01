@@ -55,11 +55,12 @@ function watchJob(job) {
 function stopJob() { clearInterval(jobPoll); jobPoll = null; $("#busySub").textContent = ""; $("#busyPct").textContent = ""; $("#busyBar").style.width = "0%"; }
 // website: a picture read runs in the background (web hosts cut long requests off) and the page
 // collects the result through the same progress polling the busy badge uses
-async function aiInBackground(body) {
+async function aiInBackground(body, retried = false) {
   const job = `j${Date.now().toString(36)}${jobSeq++}`;
   const r = await fetch("/api/ai/analyze", { method: "POST", body: JSON.stringify(body), headers: {
     "Content-Type": "application/json", "X-Job": job, "X-Async": "1", "X-Anthropic-Key": webKey.key, "X-Anthropic-Workspace": webKey.ws } });
   const j = await r.json().catch(() => ({ error: r.statusText }));
+  if (r.status === 409 && j.missing && !retried) { await restorePictures(j.missing); return aiInBackground(body, true); }
   if (!r.ok || j.error) throw new Error(j.error || r.statusText);
   const bar = $("#busyBar"), pct = $("#busyPct");
   for (;;) {
@@ -81,6 +82,40 @@ const webKey = {
     } catch (e) {}
   },
 };
+// ---- the browser keeps its own copy of every picture (IndexedDB, never leaves this computer
+// except to this app's server). The website's server forgets uploads when it restarts; when it
+// says a picture is missing, the copy is sent back under the same name and the request retried.
+const picStore = (() => {
+  let dbp = null;
+  const db = () => dbp || (dbp = new Promise((ok, bad) => {
+    const r = indexedDB.open("thimble", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("pics");
+    r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error);
+  }));
+  const run = async (mode, fn) => {
+    try {
+      const d = await db();
+      return await new Promise((ok, bad) => { const t = d.transaction("pics", mode); const q = fn(t.objectStore("pics")); t.oncomplete = () => ok(q && q.result); t.onerror = () => bad(t.error); });
+    } catch (e) { return undefined; }
+  };
+  return { put: (id, blob) => run("readwrite", (s) => s.put(blob, id)), get: (id) => run("readonly", (s) => s.get(id)) };
+})();
+async function keepPicture(id) {
+  // a picture the server made (split pieces, traced stitch files): keep a copy too
+  try { const r = await fetch("/api/image/" + encodeURIComponent(id)); if (r.ok) await picStore.put(id, await r.blob()); } catch (e) { /* not critical */ }
+}
+async function restorePictures(ids) {
+  for (const id of ids) {
+    const blob = await picStore.get(id);
+    if (!blob) throw new Error("A picture in this design is no longer on the website's server (it was added before Thimble kept a copy in your browser). Add it again with Picture / file - from now on this is automatic.");
+    const fd = new FormData(); fd.append("file", new File([blob], id, { type: blob.type || "image/png" })); fd.append("restore_id", id);
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
+    if (!r.ok) throw new Error("Couldn't put a picture back on the server.");
+    const info = S.images[id];
+    if (info) delete info._img;  // redraw it from the restored file
+  }
+}
+
 async function api(path, body, opts = {}) {
   const long = ["/api/build", "/api/ai/analyze", "/api/export", "/api/disk/write", "/api/disk/build"].includes(path);
   if (S.meta?.hosted && path === "/api/ai/analyze") return aiInBackground(body);
@@ -93,11 +128,19 @@ async function api(path, body, opts = {}) {
         S.meta?.hosted && path === "/api/ai/analyze" ? { "X-Anthropic-Key": webKey.key, "X-Anthropic-Workspace": webKey.ws } : {}), body: JSON.stringify(body),
     });
   } finally { if (job) stopJob(); }
+  if (opts.blob && r.status === 409 && !opts.retried) {
+    const j = await r.clone().json().catch(() => ({}));
+    if (j.missing) { await restorePictures(j.missing); return api(path, body, Object.assign({}, opts, { retried: true })); }
+  }
   if (opts.blob) {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
     return r;
   }
   const j = await r.json().catch(() => ({ error: r.statusText }));
+  if (r.status === 409 && j.missing && !opts.retried) {
+    await restorePictures(j.missing);
+    return api(path, body, Object.assign({}, opts, { retried: true }));
+  }
   if (!r.ok || j.error) throw new Error(j.error || r.statusText);
   return j;
 }
@@ -304,6 +347,7 @@ async function uploadPicture(file) {
   const r = await fetch("/api/upload", { method: "POST", body: fd });
   const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || "upload failed");
+  await picStore.put(j.image_id, file);
   return j;
 }
 
@@ -321,7 +365,7 @@ async function recreateStitches(el, useAI) {
   busy("now", useAI ? "Recreating with AI…" : "Tracing the stitches…");
   try {
     const info = await api("/api/stitches-to-image", el);
-    S.images[info.image_id] = info;
+    S.images[info.image_id] = info; keepPicture(info.image_id);
     const at = S.layout.elements.indexOf(el);
     let fresh;
     if (useAI) {
@@ -794,7 +838,7 @@ function wireProps(el) {
       const pic = el.type === "image";
       const res = await api(pic ? "/api/split-picture" : "/api/split-drawing", el);
       if (res.elements.length < 2) { toast(pic ? "Everything in this picture touches - it's already one piece." : "This drawing is already a single piece in one color."); return; }
-      if (pic) res.elements.forEach((e) => (S.images[e.image_id] = { image_id: e.image_id, aspect: e.aspect, colors: e.colors }));
+      if (pic) res.elements.forEach((e) => { S.images[e.image_id] = { image_id: e.image_id, aspect: e.aspect, colors: e.colors }; keepPicture(e.image_id); });
       beginEdit();
       const i = S.layout.elements.indexOf(el);
       res.elements.forEach((e) => (e.id = uid()));
@@ -997,7 +1041,7 @@ function renderChart() {
   const fmt = (n) => n.toLocaleString();
   $("#stats").innerHTML = `<span>Stitches</span><b>${fmt(st.stitches)}</b><span>Size</span><b>${U.show(st.size[0])} × ${U.show(st.size[1])} ${U.u}</b>
     <span>Sewing time</span><b>≈ ${Math.max(1, Math.round(st.minutes))} min</b>
-    <span>Thread</span><b title="Top thread; bobbin ≈ ${U.thread(st.bobbin_m)}">≈ ${U.thread(st.thread_m)} <small class="muted">+ ${U.thread(st.bobbin_m)} bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
+    <span>Thread</span><b title="Top thread; bobbin ≈ ${U.thread(st.bobbin_m || 0)}">≈ ${U.thread(st.thread_m || 0)} <small class="muted">+ ${U.thread(st.bobbin_m || 0)} bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
   $("#spools").innerHTML = st.colors.map((c, i) => `<div class="spool${threadSel.has(c.hex.toLowerCase()) ? " on" : ""}" data-hex="${c.hex.toLowerCase()}" title="Click to pick for merging · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
     <div class="t"><b>${i + 1}. ${esc(c.thread)}</b><span class="n">${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`).join("") ||
     `<span class="muted" style="font-family:Hand,cursive;font-size:18px">Thread chart appears here.</span>`;
@@ -1022,14 +1066,24 @@ let view = { s: 5, ox: 0, oy: 0 }; // px per mm, hoop-centre in px
 let weave = null;
 
 function makeWeave(color) {
-  const c = document.createElement("canvas"); c.width = c.height = 64;
+  // fabric texture: soft irregular fibres and slubs, no straight lines (straight lines read as graph paper)
+  const N = 160, c = document.createElement("canvas"); c.width = c.height = N;
   const g = c.getContext("2d");
-  g.fillStyle = color; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = color; g.fillRect(0, 0, N, N);
   const lum = parseInt(color.slice(1, 3), 16) + parseInt(color.slice(3, 5), 16) + parseInt(color.slice(5, 7), 16);
-  const ink = lum > 380 ? "0,0,0" : "255,255,255";
-  for (let y = 0; y < 64; y += 2) { g.fillStyle = `rgba(${ink},${0.035 + ((y * 7) % 5) * 0.006})`; g.fillRect(0, y, 64, 1); }
-  for (let x = 0; x < 64; x += 3) { g.fillStyle = `rgba(${ink},0.03)`; g.fillRect(x, 0, 1, 64); }
-  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(${ink},${Math.random() * 0.05})`; g.fillRect(Math.random() * 64, Math.random() * 64, 1, 1); }
+  const ink = lum > 380 ? "0,0,0" : "255,255,255", hi = lum > 380 ? "255,255,255" : "0,0,0";
+  let seed = 3; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  g.lineCap = "round";
+  for (let i = 0; i < 900; i++) {
+    const x = rnd() * N, y = rnd() * N, len = 3 + rnd() * 9, horiz = rnd() < 0.55;
+    g.strokeStyle = `rgba(${rnd() < 0.6 ? ink : hi},${0.025 + rnd() * 0.04})`;
+    g.lineWidth = 0.8 + rnd() * 0.9;
+    g.beginPath(); g.moveTo(x, y);
+    if (horiz) g.lineTo(x + len, y + (rnd() - 0.5) * 1.2); else g.lineTo(x + (rnd() - 0.5) * 1.2, y + len);
+    g.stroke();
+    // wrap the edges so the tile repeats without seams
+    if (x + len > N || y + len > N) { g.save(); g.translate(x + len > N ? -N : 0, y + len > N ? -N : 0); g.stroke(); g.restore(); }
+  }
   return ctx.createPattern(c, "repeat");
 }
 
@@ -1037,9 +1091,10 @@ function fitView() {
   const r = cv.getBoundingClientRect();
   const [W, H] = S.layout.hoop;
   const frame = 22; // mm of hoop around the field
-  view.s = Math.min(r.width / (W + frame * 2), r.height / (H + frame * 2)) * S.zoom;
+  const top = 52;   // px kept clear for the zoom/sew buttons floating over the top
+  view.s = Math.min(r.width / (W + frame * 2), (r.height - top) / (H + frame * 2)) * S.zoom;
   view.ox = r.width / 2 + S.pan.x;
-  view.oy = r.height / 2 + S.pan.y;
+  view.oy = top + (r.height - top) / 2 + S.pan.y;
   $("#zoomLabel").textContent = Math.round(S.zoom * 100) + "%";
 }
 const mm2px = (x, y) => [view.ox + x * view.s, view.oy + y * view.s];
@@ -1052,8 +1107,10 @@ function resize() {
   draw();
 }
 
-function roundRect(g, x, y, w, h, r) {
-  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+function roundRect(g, x, y, w, h, r, add = false) {
+  // add: append to the current path (for cut-outs) instead of starting a new one
+  if (!add) g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
@@ -1061,42 +1118,76 @@ function drawHoop() {
   const r = cv.getBoundingClientRect();
   ctx.clearRect(0, 0, r.width, r.height);
   const [W, H] = S.layout.hoop, s = view.s;
-  const pad = 9, ring = 7; // mm: fabric beyond the field, wooden ring thickness
+  const pad = 9, ring = 7, inner = 2.2; // mm: fabric beyond the field, wooden ring, inner ring showing
   const [x0, y0] = mm2px(-W / 2 - pad, -H / 2 - pad);
   const fw = (W + pad * 2) * s, fh = (H + pad * 2) * s, rr = 16 * s;
-  // shadow + wooden ring
+  const ox0 = x0 - ring * s, oy0 = y0 - ring * s, ow = fw + ring * 2 * s, oh = fh + ring * 2 * s, orr = rr + ring * s;
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647); // same grain every redraw
+  // shadow on the table + the wooden outer ring
   ctx.save();
-  ctx.shadowColor = "rgba(60,35,15,.35)"; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
-  roundRect(ctx, x0 - ring * s, y0 - ring * s, fw + ring * 2 * s, fh + ring * 2 * s, rr + ring * s);
-  const wood = ctx.createLinearGradient(x0, y0 - ring * s, x0, y0 + fh + ring * s);
-  wood.addColorStop(0, "#b98452"); wood.addColorStop(0.5, "#9a6437"); wood.addColorStop(1, "#7a4b28");
+  ctx.shadowColor = "rgba(60,35,15,.38)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 10;
+  roundRect(ctx, ox0, oy0, ow, oh, orr);
+  const wood = ctx.createLinearGradient(ox0, oy0, ox0 + ow * 0.25, oy0 + oh);
+  wood.addColorStop(0, "#c08a56"); wood.addColorStop(0.45, "#a46c3d"); wood.addColorStop(1, "#7c4b27");
   ctx.fillStyle = wood; ctx.fill();
   ctx.restore();
-  // wood grain
+  // wood grain: long wavy fibres with a few darker growth lines and knots
   ctx.save();
-  roundRect(ctx, x0 - ring * s, y0 - ring * s, fw + ring * 2 * s, fh + ring * 2 * s, rr + ring * s); ctx.clip();
-  ctx.strokeStyle = "rgba(60,30,10,.18)"; ctx.lineWidth = 1;
-  for (let i = 0; i < 9; i++) {
-    ctx.beginPath(); const yy = y0 - ring * s + (i + 0.5) * (fh + ring * 2 * s) / 9;
-    ctx.moveTo(x0 - ring * s, yy); ctx.bezierCurveTo(x0 + fw * 0.3, yy - 6, x0 + fw * 0.7, yy + 6, x0 + fw + ring * s, yy); ctx.stroke();
+  roundRect(ctx, ox0, oy0, ow, oh, orr); ctx.clip();
+  for (let i = 0; i < 70; i++) {
+    const yy = oy0 + rnd() * oh, amp = (2 + rnd() * 6) * Math.max(1, s / 4), dark = rnd() < 0.18;
+    ctx.strokeStyle = dark ? `rgba(70,35,12,${0.14 + rnd() * 0.12})` : `rgba(${rnd() < 0.5 ? "60,30,10" : "255,225,180"},${0.05 + rnd() * 0.07})`;
+    ctx.lineWidth = dark ? 1.2 : 0.8;
+    ctx.beginPath(); ctx.moveTo(ox0, yy);
+    ctx.bezierCurveTo(ox0 + ow * 0.3, yy - amp, ox0 + ow * 0.65, yy + amp, ox0 + ow, yy + (rnd() - 0.5) * amp);
+    ctx.stroke();
   }
   ctx.restore();
-  // fabric
+  // bevel: light catching the outer top edge, darker underside
+  ctx.save();
+  roundRect(ctx, ox0 + 1, oy0 + 1, ow - 2, oh - 2, orr - 1);
+  const bev = ctx.createLinearGradient(0, oy0, 0, oy0 + oh);
+  bev.addColorStop(0, "rgba(255,236,205,.55)"); bev.addColorStop(0.5, "rgba(255,236,205,.08)"); bev.addColorStop(1, "rgba(40,18,5,.35)");
+  ctx.strokeStyle = bev; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.restore();
+  // the inner ring peeking out inside the outer one (a real hoop is two rings)
+  const ix0 = x0 - inner * s, iy0 = y0 - inner * s, iw = fw + inner * 2 * s, ih = fh + inner * 2 * s, irr = rr + inner * s;
+  ctx.save();
+  roundRect(ctx, ix0, iy0, iw, ih, irr);
+  const ir = ctx.createLinearGradient(0, iy0, 0, iy0 + ih);
+  ir.addColorStop(0, "#8d5a31"); ir.addColorStop(1, "#b07a47");
+  ctx.fillStyle = ir; ctx.fill();
+  ctx.strokeStyle = "rgba(45,20,6,.45)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+  // fabric, pulled taut
   if (!weave || weave._c !== S.layout.fabric_color) { weave = makeWeave(S.layout.fabric_color || "#d9d5cc"); weave._c = S.layout.fabric_color; }
   roundRect(ctx, x0, y0, fw, fh, rr);
   ctx.fillStyle = weave; ctx.fill();
   ctx.save(); ctx.clip();
-  const inner = ctx.createRadialGradient(view.ox, view.oy, Math.min(fw, fh) * 0.3, view.ox, view.oy, Math.max(fw, fh) * 0.75);
-  inner.addColorStop(0, "rgba(0,0,0,0)"); inner.addColorStop(1, "rgba(40,20,5,.16)");
-  ctx.fillStyle = inner; ctx.fillRect(x0, y0, fw, fh);
+  const sheen = ctx.createRadialGradient(view.ox - fw * 0.15, view.oy - fh * 0.2, Math.min(fw, fh) * 0.1, view.ox, view.oy, Math.max(fw, fh) * 0.78);
+  sheen.addColorStop(0, "rgba(255,255,255,.05)"); sheen.addColorStop(0.6, "rgba(0,0,0,0)"); sheen.addColorStop(1, "rgba(40,20,5,.2)");
+  ctx.fillStyle = sheen; ctx.fillRect(x0, y0, fw, fh);
+  // the ring's shadow falling onto the fabric along its inside edge
+  ctx.shadowColor = "rgba(25,12,3,.55)"; ctx.shadowBlur = Math.max(6, 2.2 * s); ctx.shadowOffsetY = Math.max(1.5, 0.5 * s);
+  ctx.beginPath(); ctx.rect(x0 - 60, y0 - 60, fw + 120, fh + 120); roundRect(ctx, x0, y0, fw, fh, rr, true);
+  ctx.fillStyle = "rgba(0,0,0,1)"; ctx.fill("evenodd");
   ctx.restore();
-  // brass clamp
+  // brass clamp with its tightening screw
   const [cx, cy] = mm2px(0, -H / 2 - pad - ring);
-  const bw = 16 * s, bh = 5 * s;
+  const bw = 17 * s, bh = 5.4 * s;
+  ctx.save();
+  ctx.shadowColor = "rgba(40,20,5,.45)"; ctx.shadowBlur = 5; ctx.shadowOffsetY = 2;
   const brass = ctx.createLinearGradient(cx, cy - bh, cx, cy + bh);
-  brass.addColorStop(0, "#e2c275"); brass.addColorStop(1, "#9c7a2c");
+  brass.addColorStop(0, "#f3dc98"); brass.addColorStop(0.45, "#cfa94e"); brass.addColorStop(1, "#8a6a22");
   ctx.fillStyle = brass; roundRect(ctx, cx - bw / 2, cy - bh * 0.8, bw, bh * 1.6, 2 * s); ctx.fill();
-  ctx.fillStyle = "#7d6122"; ctx.beginPath(); ctx.arc(cx, cy, 1.6 * s, 0, 7); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = "rgba(90,65,15,.6)"; ctx.lineWidth = 1; roundRect(ctx, cx - bw / 2, cy - bh * 0.8, bw, bh * 1.6, 2 * s); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,245,210,.6)"; ctx.beginPath(); ctx.moveTo(cx - bw / 2 + 2 * s, cy - bh * 0.8 + 1); ctx.lineTo(cx + bw / 2 - 2 * s, cy - bh * 0.8 + 1); ctx.stroke();
+  const sr = 2.1 * s, screw = ctx.createRadialGradient(cx - sr * 0.4, cy - sr * 0.4, sr * 0.1, cx, cy, sr);
+  screw.addColorStop(0, "#fff2c4"); screw.addColorStop(1, "#7d6122");
+  ctx.fillStyle = screw; ctx.beginPath(); ctx.arc(cx, cy, sr, 0, 7); ctx.fill();
+  ctx.strokeStyle = "rgba(60,40,8,.8)"; ctx.lineWidth = Math.max(1, 0.35 * s);
+  ctx.beginPath(); ctx.moveTo(cx - sr * 0.7, cy + sr * 0.25); ctx.lineTo(cx + sr * 0.7, cy - sr * 0.25); ctx.stroke();
   // measuring grid (like a slicer's build plate)
   {
     const stepMm = U.inch ? (view.s < 2.2 ? 50.8 : 25.4) : (view.s < 2.2 ? 50 : 20), g0 = px2mm(x0, y0), g1 = px2mm(x0 + fw, y0 + fh);
@@ -1122,13 +1213,36 @@ function drawHoop() {
     }
     ctx.restore();
   }
-  // sewing field + tape ticks
+  // outside the sewing area: shaded and hatched, so the cut-off is obvious
   const [fx, fy] = mm2px(-W / 2, -H / 2);
-  ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(122,82,52,.55)"; ctx.lineWidth = 1;
+  {
+    const fc = S.layout.fabric_color || "#d9d5cc";
+    const lum = parseInt(fc.slice(1, 3), 16) + parseInt(fc.slice(3, 5), 16) + parseInt(fc.slice(5, 7), 16);
+    ctx.save();
+    roundRect(ctx, x0, y0, fw, fh, rr); ctx.rect(fx, fy, W * s, H * s);
+    ctx.clip("evenodd");
+    ctx.fillStyle = lum > 380 ? "rgba(60,30,10,.13)" : "rgba(0,0,0,.32)"; ctx.fillRect(x0, y0, fw, fh);
+    ctx.strokeStyle = lum > 380 ? "rgba(90,50,20,.16)" : "rgba(255,255,255,.07)"; ctx.lineWidth = 1;
+    const step = 9;
+    ctx.beginPath();
+    for (let d = -fh; d < fw + fh; d += step) { ctx.moveTo(x0 + d, y0); ctx.lineTo(x0 + d - fh, y0 + fh); }
+    ctx.stroke();
+    ctx.restore();
+  }
+  // the sewing area's edge: a clear red dashed line with a label
+  ctx.save();
+  ctx.setLineDash([8, 5]); ctx.strokeStyle = "rgba(196,60,45,.85)"; ctx.lineWidth = 1.6;
   ctx.strokeRect(fx, fy, W * s, H * s); ctx.setLineDash([]);
-  ctx.strokeStyle = "rgba(122,82,52,.45)";
+  const fsz = Math.max(10, Math.min(13, s * 3));
+  ctx.font = `600 ${fsz}px system-ui, "Segoe UI", sans-serif`; ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+  const label = `Sewing area ${U.inch ? `${U.show(W)} × ${U.show(H)} in` : `${W} × ${H} mm`}`;
+  const lw = ctx.measureText(label).width;
+  ctx.fillStyle = "rgba(196,60,45,.9)"; roundRect(ctx, fx, fy - fsz - 6, lw + 10, fsz + 6, 3); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.fillText(label, fx + 5, fy - 2);
+  ctx.restore();
+  ctx.strokeStyle = "rgba(122,82,52,.45)"; ctx.lineWidth = 1;
   const tick = U.inch ? 25.4 / 8 : 5, longEvery = U.inch ? 4 : 2; // eighths of an inch, long every half / 5 mm, long every 10
-  for (let i = 0, m = 0; m <= W + 1e-6; m = ++i * tick) { const [tx] = mm2px(-W / 2 + m, 0); ctx.beginPath(); ctx.moveTo(tx, fy); ctx.lineTo(tx, fy - (i % longEvery ? 3 : 7)); ctx.stroke(); }
+  for (let i = 0, m = 0; m <= W + 1e-6; m = ++i * tick) { const [tx] = mm2px(-W / 2 + m, 0); ctx.beginPath(); ctx.moveTo(tx, fy + H * s); ctx.lineTo(tx, fy + H * s + (i % longEvery ? 3 : 7)); ctx.stroke(); }
   for (let i = 0, m = 0; m <= H + 1e-6; m = ++i * tick) { const [, ty] = mm2px(0, -H / 2 + m); ctx.beginPath(); ctx.moveTo(fx, ty); ctx.lineTo(fx - (i % longEvery ? 3 : 7), ty); ctx.stroke(); }
   // centre mark
   ctx.strokeStyle = "rgba(122,82,52,.35)";
@@ -1170,7 +1284,12 @@ function elTransform(el) {
 function drawArtwork(el, b) {
   const info = S.images[el.image_id];
   if (!info) return;
-  if (!info._img) { info._img = new Image(); info._img.src = "/api/image/" + el.image_id; info._img.onload = draw; return; }
+  if (!info._img) {
+    info._img = new Image(); info._img.src = "/api/image/" + el.image_id; info._img.onload = draw;
+    // the website's server may have forgotten it: put our copy back once, then draw again
+    info._img.onerror = () => { if (info._restoring) return; info._restoring = true; restorePictures([el.image_id]).then(draw).catch(() => {}); };
+    return;
+  }
   if (!info._img.complete) return;
   const w = el.width_mm, h = el.width_mm * (el.aspect || info.aspect);
   ctx.save();
@@ -1835,8 +1954,29 @@ function openSettings() {
   $("#setFabric").innerHTML = Object.entries(S.meta.fabrics).map(([k, v]) => `<option value="${k}"${k === S.layout.fabric ? " selected" : ""}>${esc(v)}</option>`).join("");
   $("#setGroup").checked = S.layout.group_colors !== false;
   $("#setDensity").value = S.layout.density || "standard";
-  $("#setKey").value = ""; $("#setKey").placeholder = S.meta.ai ? "Key saved — paste a new one to replace" : "sk-ant-…";
-  if (S.meta.hosted) $("#keyNote").textContent = "Your own key, saved only in this browser. It is sent only with your own picture reads, straight through to Anthropic, and never stored on the server. Pennies per picture.";
+  $("#setKey").value = ""; $("#setKey").type = "password"; $("#keyShow").textContent = "Show";
+  $("#setKey").placeholder = S.meta.ai ? "Your key is saved - paste a new one only to replace it" : "Paste your key here (sk-ant-…)";
+  const st = $("#aiStatus"); st.textContent = S.meta.ai ? "✓ Set up and ready" : "Not set up yet"; st.className = "ai-status " + (S.meta.ai ? "ok" : "no");
+  $("#keyTestMsg").textContent = "";
+  if (S.meta.hosted) $("#keyNote").textContent = "Saved only in this web browser on this computer - Thimble's server never keeps it. It's only sent along with the pictures you choose to read, straight on to Anthropic. Use Forget my key on a shared computer.";
+  $("#keyShow").onclick = () => { const k = $("#setKey"); k.type = k.type === "password" ? "text" : "password"; $("#keyShow").textContent = k.type === "password" ? "Show" : "Hide"; };
+  $("#keyTest").onclick = async () => {
+    const msg = $("#keyTestMsg"); msg.textContent = "Checking…"; msg.style.color = "";
+    const key = $("#setKey").value.trim(), ws = $("#setWorkspace").value.trim();
+    try {
+      const r = await fetch("/api/ai/test", { method: "POST", headers: Object.assign({ "Content-Type": "application/json" },
+        S.meta.hosted ? { "X-Anthropic-Key": key || webKey.key, "X-Anthropic-Workspace": ws || webKey.ws } : {}), body: JSON.stringify(S.meta.hosted ? {} : { key, workspace: ws }) });
+      const j = await r.json();
+      msg.textContent = j.msg || j.error || "Something went wrong."; msg.style.color = j.ok ? "#2f6b2a" : "#a33";
+    } catch (e) { msg.textContent = "Couldn't check right now - try again in a moment."; msg.style.color = "#a33"; }
+  };
+  $("#keyForget").onclick = async () => {
+    if (!confirm("Remove your AI key from this computer? You can paste it again any time.")) return;
+    if (S.meta.hosted) { try { localStorage.removeItem("thimble.akey"); localStorage.removeItem("thimble.aws"); } catch (e) {} S.meta.ai = false; S.meta.workspace = ""; }
+    else { const r = await api("/api/ai/forget", {}); S.meta.ai = r.ai; S.meta.workspace = r.workspace; }
+    $("#setWorkspace").value = ""; $("#aiStatus").textContent = "Not set up yet"; $("#aiStatus").className = "ai-status no";
+    $("#setKey").placeholder = "Paste your key here (sk-ant-…)"; $("#keyTestMsg").textContent = "Key removed.";
+  };
   $("#setWorkspace").value = S.meta.workspace || "";
   $("#fabricSwatches").innerHTML = FABRIC_COLORS.map((c) => `<button type="button" data-c="${c}" style="background:${c}" class="${c === S.layout.fabric_color ? "on" : ""}" aria-label="Fabric ${c}"></button>`).join("");
   $$("#fabricSwatches button").forEach((b) => (b.onclick = () => { $$("#fabricSwatches button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); }));

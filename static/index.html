@@ -194,12 +194,33 @@
     <div class="field"><label>Preview fabric color</label><div class="fabric-swatches" id="fabricSwatches"></div></div>
     <label class="radio"><input type="checkbox" id="setGroup" checked> Group matching colors (fewer thread changes)</label>
     <hr>
-    <div class="field"><label for="setKey">Anthropic API key (for “Read a picture”)</label>
-      <input id="setKey" type="password" placeholder="sk-ant-…" spellcheck="false" autocomplete="off">
-      <p class="muted small" id="keyNote">Stored only on this computer (config.json). Used only to send the picture you choose to Claude. Pennies per picture.</p></div>
-    <div class="field"><label for="setWorkspace">Workspace ID (only if your key isn't made inside a workspace)</label>
-      <input id="setWorkspace" placeholder="wrkspc_…" spellcheck="false" autocomplete="off">
-      <p class="muted small">Find it in the Anthropic Console under Settings → Workspaces. Leave empty for keys created inside a workspace.</p></div>
+    <div class="ai-card">
+      <h3>Read a picture with AI <span class="muted small">(optional)</span></h3>
+      <span class="ai-status no" id="aiStatus">Not set up yet</span>
+      <p class="small" style="margin:0">Everything else in Thimble works without this. To let the AI turn your pictures into stitches, it needs a "key" - like a password - from Anthropic, the company that makes the Claude AI. It takes about 5 minutes, once.</p>
+      <ol class="ai-steps">
+        <li><a href="https://console.anthropic.com/" target="_blank" rel="noopener"><b>Open the Anthropic website</b></a> and sign in, or make a free account with your email.</li>
+        <li>Add a little money: click <b>Billing</b> (left side) and add credit - $5 is plenty to start. Each picture read costs a few cents.</li>
+        <li>Click <b>API keys</b>, then the <b>Create key</b> button. Call it <b>Thimble</b>. If it asks which workspace, pick <b>Default</b>.</li>
+        <li>Press <b>Copy</b> next to the new key (it starts with <b>sk-ant-</b>), come back here, click in the box below and paste it (Ctrl+V).</li>
+        <li>Press <b>Test my key</b>, then <b>Save</b>.</li>
+      </ol>
+      <label for="setKey" class="small"><b>Your key</b></label>
+      <div class="ai-keyrow">
+        <input id="setKey" type="password" placeholder="Paste your key here (sk-ant-…)" spellcheck="false" autocomplete="off">
+        <button type="button" class="btn small" id="keyShow">Show</button>
+      </div>
+      <div class="ai-buttons">
+        <button type="button" class="btn small primary" id="keyTest">Test my key</button>
+        <button type="button" class="btn small ghost" id="keyForget">Forget my key</button>
+        <span class="small" id="keyTestMsg"></span>
+      </div>
+      <p class="safe" id="keyNote">Saved only on this computer, in Thimble's own settings file. It's only ever sent to Anthropic, along with the pictures you choose to read.</p>
+      <details><summary>Advanced: workspace ID (only if Thimble asks for it)</summary>
+        <input id="setWorkspace" placeholder="wrkspc_…" spellcheck="false" autocomplete="off" style="margin-top:6px;width:100%">
+        <p class="muted small">Only needed for a key that was made outside a workspace. Find it in the Anthropic website under Settings → Workspaces. Leave empty otherwise.</p>
+      </details>
+    </div>
     <menu><button value="cancel" class="btn ghost">Close</button><button type="button" id="setSave" class="btn primary">Save</button></menu>
   </form>
 </dialog>
