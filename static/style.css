@@ -418,3 +418,8 @@ section.swatch.grow.folded { flex: none; }
 .legal p { margin: 4px 0; line-height: 1.5; }
 .legal-fonts { max-height: 220px; overflow: auto; font-size: 12px; columns: 2; column-gap: 18px; }
 .legal-fonts div { break-inside: avoid; margin-bottom: 3px; }
+
+/* notes stay short: one line each, click to read the whole thing; the stack never grows past a small height */
+.notes { max-height: 120px; overflow-y: auto; }
+.note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note.open { white-space: normal; }

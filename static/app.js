@@ -1257,7 +1257,8 @@ function renderChart() {
   const probs = st.problems || [];
   $("#notes").innerHTML = (st.warnings || []).map(inUnits).slice(0, 3).map((w) => `<div class="note">${esc(w)}</div>`).join("") +
     probs.slice(0, 4).map((p, i) => `<div class="note problem ${p.level}" data-prob="${i}" title="Click to see where"><b>${p.level === "warn" ? "⚠" : "ℹ"}</b> ${esc(inUnits(p.msg))}</div>`).join("");
-  $$("#notes [data-prob]").forEach((n) => (n.onclick = () => { S.probFocus = probs[+n.dataset.prob]; draw(); setTimeout(() => { S.probFocus = null; draw(); }, 2500); }));
+  $$("#notes .note").forEach((n) => (n.title = n.title || n.textContent));
+  $$("#notes [data-prob]").forEach((n) => (n.onclick = () => { n.classList.toggle("open"); S.probFocus = probs[+n.dataset.prob]; draw(); setTimeout(() => { S.probFocus = null; draw(); }, 2500); }));
 }
 
 // ------------------------------------------------------------------ canvas
