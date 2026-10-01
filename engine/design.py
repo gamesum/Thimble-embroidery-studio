@@ -148,6 +148,21 @@ def element_layers(el):
         pal = [tuple(c["rgb"]) for c in cols] or None
         pal, masks, _, labels = raster.image_masks(im, num(el.get("width_mm"), 80), pal)
         bg = raster.background_index(labels)
+        md = min(150.0, max(0.0, num(el.get("merge_colors"), 0)))
+        if md > 0 and len(masks) > 1:
+            # fold shading colours into the biggest nearby colour (the biggest of a group keeps its thread)
+            area = [int(m.sum()) for m in masks]
+            leader = list(range(len(masks)))
+            for i in sorted(range(len(masks)), key=lambda k: -area[k]):
+                if leader[i] != i or i == bg:
+                    continue
+                for j in range(len(masks)):
+                    if j != i and j != bg and leader[j] == j and area[j] <= area[i] and                             sum((a - b) ** 2 for a, b in zip(pal[i], pal[j])) ** 0.5 <= md:
+                        leader[j] = i
+            for j, i in enumerate(leader):
+                if i != j:
+                    masks[i] = masks[i] | masks[j]
+                    masks[j] = np.zeros_like(masks[j])
         sm = min(4.0, max(0.0, num(el.get("smooth"), 0)))
         if sm > 0 and masks:
             masks = smooth_masks(masks, sm)

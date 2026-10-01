@@ -880,6 +880,8 @@ function renderProps() {
     const cols = el.colors || [];
     h += `<h2>Picture</h2>` + rangeField("p-width_mm", "Width (mm)", 10, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
       `<p class="hint">About ${Math.round(el.width_mm * (el.aspect || 1))} mm tall.</p>` +
+      rangeField("p-merge_colors", "Merge similar colors", 0, 150, 5, el.merge_colors || 0) +
+      `<p class="hint">Folds shading and near-identical colors into the biggest one nearby. 0 = keep every color.</p>` +
       rangeField("p-smooth", "Smooth the shapes", 0, 4, 0.1, el.smooth || 0) +
       `<p class="hint">Rounds off lumpy, jagged edges before stitching. 0 = exactly as in the picture.</p>` +
       field("Stitch as", `<div class="seg3">${[["", "Filled"], ["trace", "Traced lines"]].map(([v, t]) =>
@@ -1029,6 +1031,7 @@ function wireProps(el) {
   if ($("#p-trace_width")) wireRange(el, "trace_width");
   if ($("#p-trace_min")) wireRange(el, "trace_min");
   if ($("#p-smooth")) wireRange(el, "smooth");
+  if ($("#p-merge_colors")) wireRange(el, "merge_colors");
   const ey = $("#p-eyes"); if (ey) ey.onchange = () => setProp(el, "eyes", ey.checked);
   const al = $("#p-align"); if (al) al.onchange = () => setProp(el, "align", al.value);
   wireThread("p-color", () => el.color, (hex) => { setProp(el, "color", hex); if ($("#p-letters")) $("#p-letters").innerHTML = letterChips(el); });
