@@ -373,6 +373,9 @@ class StrokeGraph:
             # a real corner turns all at once (the wide window adds little); a curve like an
             # "o" or "s" keeps turning, so its wide-window turn is ~2x the narrow one -> no split
             sharp = (turn > math.radians(max_turn_deg)) & (turn > 0.72 * wide)
+            # wide strokes round their corners off over about a stroke width, so a real corner
+            # (V point, top of M, G bar) shows a big turn that the wide window only partly adds to
+            sharp |= (turn > math.radians(80)) & (turn > 0.58 * wide)
             cuts, i = [], int(1.2 * h) + W
             while i < n - int(1.2 * h) - W:
                 if sharp[i]:
@@ -440,7 +443,11 @@ class StrokeGraph:
             if (leaf_a ^ leaf_b) and len(self.edges) > 1:
                 junction_end = e["pts"][-1] if leaf_a else e["pts"][0]
                 h = self._dt_at(junction_end)
-                if self._length(e) < (1.7 if h > 35 else 0.95) * h + 2:
+                L = self._length(e)
+                # wide letters: a branch running into a corner tapers to nothing (a spur), while
+                # half of a real stroke (the stem of a K) keeps its width
+                tapers = float(np.median([self._dt_at(q) for q in e["pts"]])) < 0.6 * h
+                if L < 0.95 * h + 2 or (h > 35 and L < 1.7 * h + 2 and tapers):
                     changed = True
                     continue
             keep.append(e)
@@ -579,12 +586,20 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
                     limR = 1.1 * float(np.median([_raycast(mask, q, -nrm, 3 * hd) for q in mpts])) + 1.0
                     # run the ends on while the rungs still find the letter (to the far corner
                     # of a slanted foot, not just where the centre line leaves it)
+                    # (each new rung has to overlap the last one - never jump a counter to
+                    # another part of the letter)
+                    def run_on(t, step):
+                        prev = _rung_span(mask, cen + t * ax, nrm, limL, limR)
+                        while prev and abs(t + step - (t0 if step * sgn > 0 else t1)) < 20 * hd:
+                            sp = _rung_span(mask, cen + (t + step) * ax, nrm, limL, limR)
+                            if not sp or min(sp[0], prev[0]) + min(sp[1], prev[1]) < 0.5 * min(sp[0] + sp[1], prev[0] + prev[1]):
+                                break
+                            t, prev = t + step, sp
+                        return t
                     if ext_end:
-                        while abs(t1 - t0) < 20 * hd and _rung_span(mask, cen + (t1 + sgn) * ax, nrm, limL, limR):
-                            t1 += sgn
+                        t1 = run_on(t1, sgn)
                     if ext_start:
-                        while abs(t1 - t0) < 20 * hd and _rung_span(mask, cen + (t0 - sgn) * ax, nrm, limL, limR):
-                            t0 -= sgn
+                        t0 = run_on(t0, -sgn)
                     pts = cen + np.linspace(t0, t1, max(5, int(abs(t1 - t0)) + 1))[:, None] * ax
                     straight = (limL, limR)
         pts = np.column_stack([ndimage.gaussian_filter1d(pts[:, 0], sig, mode=mode),
