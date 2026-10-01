@@ -138,6 +138,9 @@ def element_layers(el):
         pal = [tuple(c["rgb"]) for c in cols] or None
         pal, masks, _, labels = raster.image_masks(im, num(el.get("width_mm"), 80), pal)
         bg = raster.background_index(labels)
+        sm = min(4.0, max(0.0, num(el.get("smooth"), 0)))
+        if sm > 0 and masks:
+            masks = smooth_masks(masks, sm)
         if el.get("trace"):
             return trace_layers(el, pal, masks, cols, bg)
         out = []
@@ -147,6 +150,16 @@ def element_layers(el):
                 out.append((c.get("thread") or rgb_to_hex(pal[i]), m, (0, 0), c.get("style", "auto")))
         return out
     return []
+
+
+def smooth_masks(masks, mm):
+    """Round off lumpy, jagged outlines: blur every colour's area by `mm` and let the strongest
+    colour win each pixel (areas stay a clean partition - no gaps or overlaps appear)."""
+    sig = mm * RES
+    stack = np.stack([cv2.GaussianBlur(m.astype(np.float32), (0, 0), sig) for m in masks])
+    lab = np.argmax(stack, 0)
+    empty = stack.max(0) < 0.3
+    return [(lab == i) & ~empty for i in range(len(masks))]
 
 
 TRACE_LINE_MAX = 2.0  # mm: parts of the picture this thin are drawn lines - sewn once down the middle

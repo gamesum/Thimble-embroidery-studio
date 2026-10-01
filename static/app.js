@@ -751,7 +751,9 @@ function renderProps() {
           : selectField("p-trace_repeat", "Line weight", [["1", "Single - light"], ["3", "Triple (bean stitch) - bolder"]], String(el.trace_repeat || 1))) +
         rangeField("p-trace_min", "Leave out lines shorter than (mm)", 0, 20, 0.5, el.trace_min ?? 3, "len") +
         `<p class="hint">Only the edges between colors are sewn - each edge once, in the darker thread - and thin lines are sewn down their middle. Raise "leave out" to drop fur, hatching and other small strokes; untick a color to leave its edges out.</p>` : "") +
-      `<button type="button" class="btn small" id="p-split" title="Make each separate object (each star, the ghost...) its own picture">Split into pieces</button>` +
+      rangeField("p-smooth", "Smooth the shapes", 0, 4, 0.1, el.smooth || 0) +
+      `<p class="hint">Rounds off lumpy, jagged edges before stitching. 0 = exactly as in the picture.</p>` +
+      `<button type="button" class="btn small" id="p-split" title="Each separate object (each star, the ghost...) becomes its own picture; press again on a one-object picture to split it by color">Split into pieces</button>` +
       field("Colors <small>(untick to skip)</small>", `<div class="imgcolors">${cols.map((c, i) => `
         <div class="imgcolor"><span class="sw" style="background:${c.hex}" title="In the picture"></span>
           <label class="radio"><input type="checkbox" data-ci="${i}" data-k="keep"${c.keep ? " checked" : ""}> ${Math.round(c.share * 100)}%</label>
@@ -848,7 +850,8 @@ function wireProps(el) {
       if (r && r.ids.includes(el.id)) r.ids = r.ids.filter((x) => x !== el.id).concat(res.elements.map((e) => e.id));
       commit(true);
       S.sel = i; renderLayers(); renderProps(); scheduleBuild(0); save_local();
-      toast(`Split into ${res.elements.length} pieces - each is its own layer now.`, "good");
+      toast(res.how === "colors" ? `Split by color into ${res.elements.length} pieces. Press Split again on one to separate its parts.`
+        : `Split into ${res.elements.length} pieces - each is its own layer now.`, "good");
     } catch (e) { toast(esc(e.message), "bad"); }
   };
   $$("[data-vc]").forEach((inp) => (inp.oninput = () => {
@@ -869,6 +872,7 @@ function wireProps(el) {
   const tr = $("#p-trace_repeat"); if (tr) tr.onchange = () => setProp(el, "trace_repeat", +tr.value);
   if ($("#p-trace_width")) wireRange(el, "trace_width");
   if ($("#p-trace_min")) wireRange(el, "trace_min");
+  if ($("#p-smooth")) wireRange(el, "smooth");
   const al = $("#p-align"); if (al) al.onchange = () => setProp(el, "align", al.value);
   wireThread("p-color", () => el.color, (hex) => { setProp(el, "color", hex); if ($("#p-letters")) $("#p-letters").innerHTML = letterChips(el); });
   wireLetterColors(el);

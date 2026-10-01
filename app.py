@@ -191,19 +191,26 @@ def split_picture():
     gap = max(1, int(round(1.0 * px_mm)))
     joined = cv2.dilate(fg, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * gap + 1, 2 * gap + 1)))
     n, cc, st, _ = cv2.connectedComponentsWithStats(joined, connectivity=8)
-    pieces = [j for j in range(1, n) if (fg[cc == j]).sum() >= 2.0 * px_mm * px_mm]
+    min_px = 2.0 * px_mm * px_mm
+    pieces = [cc == j for j in range(1, n) if (fg[cc == j]).sum() >= min_px]
+    how = "objects"
     if len(pieces) < 2:
-        return jsonify(elements=[])
+        # one object: split it by thread colour instead (press again on a colour to split its objects)
+        pieces = [labels == i for i, k in enumerate(keep) if k and (labels == i).sum() >= min_px]
+        how = "colors"
+        if len(pieces) < 2:
+            return jsonify(elements=[])
     bg_rgb = tuple(int(v) for v in pal[bg]) if bg is not None and bg < len(pal) else (255, 255, 255)
     rot = math.radians(float(el.get("rotation") or 0))
     c, s_ = math.cos(rot), math.sin(rot)
     out = []
-    for n_i, j in enumerate(sorted(pieces, key=lambda j: -st[j, cv2.CC_STAT_AREA])):
-        x, y, w, h = (int(v) for v in st[j, :4])
+    for n_i, pm in enumerate(sorted(pieces, key=lambda m: -int(m.sum()))):
+        ys, xs = np.nonzero(pm)
+        x, y, w, h = int(xs.min()), int(ys.min()), int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)
         pad = gap + 2
         x0, y0, x1, y1 = max(0, x - pad), max(0, y - pad), min(W, x + w + pad), min(H, y + h + pad)
         crop = arr[y0:y1, x0:x1].copy()
-        crop[cc[y0:y1, x0:x1] != j] = bg_rgb
+        crop[~pm[y0:y1, x0:x1]] = bg_rgb
         image_id = uuid.uuid4().hex[:12] + ".png"
         Image.fromarray(crop).save(os.path.join(UPLOADS, image_id))
         # centre offset in mm (picture-local), then turned with the picture
@@ -214,7 +221,7 @@ def split_picture():
                      x=round(float(el.get("x") or 0) + dx * c - dy * s_, 2), y=round(float(el.get("y") or 0) + dx * s_ + dy * c, 2),
                      name="%s %d" % (el.get("name") or "Picture", n_i + 1))
         out.append(piece)
-    return jsonify(elements=out)
+    return jsonify(elements=out, how=how)
 
 
 @app.get("/api/meta")
