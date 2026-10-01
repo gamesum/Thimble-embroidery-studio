@@ -355,6 +355,7 @@ async function importFile(file) {
 }
 async function addPicture(file) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (ext === "thimble") return openFile(file);  // a project, whichever button it came through
   if (ext === "svg" || EMB_EXT.has(ext)) return importFile(file);
   busy("now", "Unpicking the colors…");
   try {
