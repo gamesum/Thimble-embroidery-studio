@@ -520,11 +520,33 @@ def _cap_direction(mask, contour, tip, med):
     return v / (np.hypot(*v) or 1)
 
 
+def _rung_span(mask, p, n, lim_l, lim_r):
+    """Along the rung through p (unit n): the inside run of the mask that contains p, or the
+    nearest one if p is just outside (a column running on past a slanted end). Returns
+    (dl, dr) with left rail p + n*dl and right rail p - n*dr (either may be negative), or None."""
+    h, w = mask.shape
+    us = np.arange(-lim_r, lim_l + 0.01, 0.5)
+    xs = np.round(p[0] + n[0] * us).astype(int)
+    ys = np.round(p[1] + n[1] * us).astype(int)
+    ok = (xs >= 0) & (ys >= 0) & (xs < w) & (ys < h)
+    inside = np.zeros(len(us), bool)
+    inside[ok] = mask[ys[ok], xs[ok]]
+    if not inside.any():
+        return None
+    edges = np.flatnonzero(np.diff(np.concatenate([[0], inside.astype(np.int8), [0]])))
+    runs = list(zip(edges[::2], edges[1::2] - 1))
+    lo, hi = min(runs, key=lambda r: 0 if us[r[0]] <= 0 <= us[r[1]] else min(abs(us[r[0]]), abs(us[r[1]])))
+    if us[hi] - us[lo] < 2:
+        return None
+    return float(us[hi]) + 0.25, -float(us[lo]) + 0.25
+
+
 def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_end=False, contour=None, closed=False):
     """Rails + satin/underlay needle points for one stroke (px), in the direction of pts.
     ext_*: extend the column to the outline (stroke ends and split corners).
     cap_*: that end is a real stroke end - angle the last stitches to match the cut."""
     pts = np.asarray(pts_px, float)
+    straight = None
     if ext_end and not closed:
         pts = _extend_to_tip(mask, pts, dt)
     if ext_start and not closed:
@@ -549,13 +571,22 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
                 ln = float(proj.max() - proj.min())
                 if ln > 2 * hd and float(np.percentile(dev, 90)) < 0.25 * hd:
                     t0, t1 = (pts[0] - cen) @ ax, (pts[-1] - cen) @ ax
-                    sg_ = 1.0 if t1 > t0 else -1.0
-                    # run each end on to the outline (stroke ends and split corners)
+                    sgn = 1.0 if t1 > t0 else -1.0
+                    nrm = np.array([-ax[1], ax[0]]) * sgn  # the column's left normal
+                    # each side's width from the middle, so rungs can't wander into a crossbar
+                    mpts = cen + np.linspace(t0, t1, 15)[3:12, None] * ax
+                    limL = 1.1 * float(np.median([_raycast(mask, q, nrm, 3 * hd) for q in mpts])) + 1.0
+                    limR = 1.1 * float(np.median([_raycast(mask, q, -nrm, 3 * hd) for q in mpts])) + 1.0
+                    # run the ends on while the rungs still find the letter (to the far corner
+                    # of a slanted foot, not just where the centre line leaves it)
                     if ext_end:
-                        t1 += sg_ * _raycast(mask, cen + t1 * ax, sg_ * ax, 4 * hd + 4)
+                        while abs(t1 - t0) < 20 * hd and _rung_span(mask, cen + (t1 + sgn) * ax, nrm, limL, limR):
+                            t1 += sgn
                     if ext_start:
-                        t0 -= sg_ * _raycast(mask, cen + t0 * ax, -sg_ * ax, 4 * hd + 4)
-                    pts = cen + np.linspace(t0, t1, max(5, len(pts)))[:, None] * ax
+                        while abs(t1 - t0) < 20 * hd and _rung_span(mask, cen + (t0 - sgn) * ax, nrm, limL, limR):
+                            t0 -= sgn
+                    pts = cen + np.linspace(t0, t1, max(5, int(abs(t1 - t0)) + 1))[:, None] * ax
+                    straight = (limL, limR)
         pts = np.column_stack([ndimage.gaussian_filter1d(pts[:, 0], sig, mode=mode),
                                ndimage.gaussian_filter1d(pts[:, 1], sig, mode=mode)])
     step = P.satin_spacing / 2 * RES
@@ -599,15 +630,24 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
     # at the outline, which would taper the column to a point and leave the corners bare)
     local = np.maximum(hdt, med) if med >= 30 else hdt
     caps = np.minimum(1.45 * local + 1.0, 1.7 * med + 1.5) / np.maximum(np.abs(np.sum(rdir * nor, 1)), 0.5)
-    dl = np.array([_raycast(mask, c[i], rdir[i], caps[i]) for i in range(len(c))])
-    dr = np.array([_raycast(mask, c[i], -rdir[i], caps[i]) for i in range(len(c))])
-    if len(c) >= 5:
+    if straight:
+        # straight wide stroke: every stitch parallel, each trimmed to the letter's outline
+        spans = [_rung_span(mask, c[i], nor[i], *straight) for i in range(len(c))]
+        keep = np.array([sp is not None for sp in spans])
+        c, nor, tan, hdt = c[keep], nor[keep], tan[keep], hdt[keep]
+        rdir = nor.copy()
+        dl = np.array([sp[0] for sp in spans if sp is not None])
+        dr = np.array([sp[1] for sp in spans if sp is not None])
+    else:
+        dl = np.array([_raycast(mask, c[i], rdir[i], caps[i]) for i in range(len(c))])
+        dr = np.array([_raycast(mask, c[i], -rdir[i], caps[i]) for i in range(len(c))])
+    if len(c) >= 5 and not straight:
         mode = "wrap" if closed else "nearest"
         dl = ndimage.gaussian_filter1d(ndimage.median_filter(dl, 5, mode=mode), 1.0, mode=mode)
         dr = ndimage.gaussian_filter1d(ndimage.median_filter(dr, 5, mode=mode), 1.0, mode=mode)
     # near joints a ray can run down the neighbouring stroke; cap each edge at ~1.3x the
     # stroke's typical half-width (measured over the middle of the column)
-    if len(c) >= 8:
+    if len(c) >= 8 and not straight:
         mid = slice(len(c) // 5, len(c) - len(c) // 5)
         for side in (dl, dr):
             lim = (1.1 if med >= 30 else 1.3) * float(np.median(side[mid])) + 1.0
@@ -650,7 +690,14 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
         ins = P.underlay_inset * RES
         Li = c + rdir * np.maximum(dl - P.pull_comp * RES - ins, 0.2)[:, None]
         Ri = c - rdir * np.maximum(dr - P.pull_comp * RES - ins, 0.2)[:, None]
-        zz = max(1, int(round(P.zigzag_underlay_spacing * RES / 2 / step)))
+        if straight:
+            # the centre line can run just past a slanted end: inset from the stitch's own
+            # middle so the underlay never pokes outside the letter
+            a = (dl - dr) / 2
+            half = np.maximum((dl + dr) / 2 - P.pull_comp * RES - ins, 0.2)
+            Li = c + rdir * (a + half)[:, None]
+            Ri = c + rdir * (a - half)[:, None]
+        zz =max(1, int(round(P.zigzag_underlay_spacing * RES / 2 / step)))
         idx = list(range(0, len(c), zz))
         if idx[-1] != len(c) - 1:
             idx.append(len(c) - 1)
