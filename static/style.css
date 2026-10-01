@@ -430,3 +430,8 @@ section.swatch.grow.folded { flex: none; }
 .layers li.drop-above::after, .layers li.drop-below::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; background: #c43c2d; border-radius: 2px; pointer-events: none; }
 .layers li.drop-above::after { top: -2px; }
 .layers li.drop-below::after { bottom: -2px; }
+
+/* shown after opening a file until the first rebuild lands */
+.load-note { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 40; max-width: min(560px, 90vw); text-align: center;
+  background: #fff6c9; color: #6b5510; border: 1px solid #d9c46a; border-radius: 6px; padding: 8px 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); font-size: 14px; }
+.load-note[hidden] { display: none; }

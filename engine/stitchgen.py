@@ -1020,6 +1020,10 @@ def run_shape(mask, P, entry=None, repeats=2):
             e = g.edges[idx]
             fwd = e["a"] == n
             pts = e["pts"] if fwd else e["pts"][::-1]
+            # the skeleton is pixel-jagged: simplify first, or every pixel kink counts as a "corner" and
+            # gets its own tiny stitches (hundreds of 0.3 mm stitches on a hand-drawn line)
+            if len(pts) > 3:
+                pts = cv2.approxPolyDP(np.asarray(pts, np.float32).reshape(-1, 1, 2), 1.2, False).reshape(-1, 2)
             out = run_points(pts, L)
             seq.extend(out)
             if e["a"] == e["b"]:

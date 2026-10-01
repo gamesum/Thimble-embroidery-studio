@@ -163,6 +163,20 @@ function toast(msg, kind = "") {
 }
 
 let busyTimer = null;
+// after opening a file the hoop can look scattered until the stitches are rebuilt: say so until the first build lands
+let loadNoteTimer = null;
+function loadNote(on) {
+  let n = $("#loadNote");
+  clearTimeout(loadNoteTimer);
+  if (!on) { if (n) n.hidden = true; return; }
+  if (!n) {
+    n = document.createElement("div"); n.id = "loadNote"; n.className = "load-note";
+    n.innerHTML = "<b>Still loading…</b> Please wait for it to finish before checking your pattern. It can look scattered at first and tidies itself up.";
+    $("#toasts").parentNode.appendChild(n);
+  }
+  n.hidden = false;
+  loadNoteTimer = setTimeout(() => (n.hidden = true), 90000);
+}
 function busy(on, text = "Threading the needle…") {
   clearTimeout(busyTimer);
   // quick rebuilds: small badge in the corner; bigger jobs (saving, pictures, AI): centred on the hoop
@@ -225,7 +239,7 @@ async function build() {
     const sent = JSON.stringify(S.layout);
     const res = await api("/api/build", S.layout);
     if (seq !== S.buildSeq) return;
-    S.built = res; S.dirty = false; S.fontPrev = null;
+    S.built = res; S.dirty = false; S.fontPrev = null; loadNote(false);
     // only drop the resize previews once the stitches really are for the design as it is now
     if (sent === JSON.stringify(S.layout)) S.vis = {};
     renderChart(); draw();
@@ -403,7 +417,7 @@ async function importFile(file) {
     const r = await fetch("/api/import", { method: "POST", body: fd });
     const j = await r.json().catch(() => ({ error: r.statusText }));
     if (!r.ok || j.error) throw new Error(j.error || "import failed");
-    addElement(j.element);
+    addElement(j.element); loadNote(true);
     toast(j.element.type === "stitches"
       ? `Opened ${esc(file.name)} - its stitches are used as they are. You can move, turn and recolor it.`
       : `Imported ${esc(file.name)} as a drawing - clean shapes, ready to stitch.`, "good");
@@ -2548,7 +2562,7 @@ async function openFile(file) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   if (ext === "thimble" || ext === "json") {
     busy("now", "Opening " + file.name + "…");
-    try { await openProjectFile(file); } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
+    try { await openProjectFile(file); loadNote(true); } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
     return;
   }
   addPicture(file);  // pictures, SVG and embroidery files join the current design
