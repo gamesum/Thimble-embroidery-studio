@@ -2393,7 +2393,7 @@ $("#fbSend").onclick = async () => {
     (l.elements || []).forEach((e) => { if (e.blocks) e.blocks = "(stitch data left out)"; });
     body.design = l;
   }
-  try { await api("/api/feedback", body); $("#dlgFeedback").close(); $("#fbMsg").value = ""; toast("Thank you! Your note was sent.", "good"); }
+  try { await api("/api/feedback", body); $("#dlgFeedback").close(); $("#fbMsg").value = ""; $("#fbContact").value = ""; toast("Thank you! Your note was sent.", "good"); }
   catch (e) { toast("Couldn't send that - " + (e.message || "try again"), "bad"); }
 };
 $("#openLegal").onclick = async () => {
