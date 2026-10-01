@@ -1796,7 +1796,9 @@ async function projectFileBlob() {
   if (lay.ai_read?.image_id) ids.add(lay.ai_read.image_id);
   for (const id of ids) {
     try {
-      const b = await (await fetch(`/api/image/${encodeURIComponent(id)}`)).blob();
+      const r = await fetch(`/api/image/${encodeURIComponent(id)}`);
+      const b = await r.blob();
+      if (!r.ok || !b.type.startsWith("image/")) continue;  // picture no longer on the server: don't pack the error
       images[id] = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(b); });
     } catch (e) { /* picture no longer on the server: the layout still saves */ }
   }
@@ -1828,18 +1830,23 @@ async function openProjectFile(file) {
   if (!lay || !Array.isArray(lay.elements)) throw new Error("That file isn't a Thimble project.");
   // pictures travel inside the file: put them back on the server and point the design at them
   const remap = {};
+  let lost = 0;
   for (const [id, url] of Object.entries(data.images || {})) {
-    const b = await (await fetch(url)).blob();
-    const ext = (id.split(".").pop() || "png").toLowerCase();
-    const info = await uploadPicture(new File([b], "picture." + ext, { type: b.type || "image/png" }));
-    remap[id] = info.image_id; S.images[info.image_id] = info;
+    // a missing or damaged picture shouldn't stop the rest of the project from opening
+    if (!String(url).startsWith("data:image/")) { lost++; continue; }
+    try {
+      const b = await (await fetch(url)).blob();
+      const ext = (id.split(".").pop() || "png").toLowerCase();
+      const info = await uploadPicture(new File([b], "picture." + ext, { type: b.type || "image/png" }));
+      remap[id] = info.image_id; S.images[info.image_id] = info;
+    } catch (e) { lost++; }
   }
   for (const el of lay.elements) if (el.type === "image" && remap[el.image_id]) el.image_id = remap[el.image_id];
   if (lay.ai_read?.image_id && remap[lay.ai_read.image_id]) lay.ai_read.image_id = remap[lay.ai_read.image_id];
   commit(true); clearMulti();
   S.layout = Object.assign(DEFAULT_LAYOUT(), lay); S.sel = -1;
   await loadImageInfo(); afterLoad();
-  toast(`Opened “${esc(S.layout.name || file.name)}”.`, "good");
+  toast(`Opened “${esc(S.layout.name || file.name)}”.` + (lost ? ` ${lost} picture${lost === 1 ? " was" : "s were"} missing from the file - the rest is all there.` : ""), "good");
 }
 async function openFile(file) {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
