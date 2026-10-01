@@ -261,7 +261,7 @@ const SHAPES = [["heart", "Heart"], ["star", "Star"], ["circle", "Circle"], ["ri
   ["frame", "Frame"], ["double_frame", "Double frame"], ["offset_frame", "Offset frame"], ["line", "Line"]];
 const TEXT_STYLES = [["auto", "Auto - satin, or fill on big bold letters"], ["satin", "Satin sweeps - long glossy stitches across every stroke"], ["fill", "Fill - rows of short stitches"]];
 const STYLES = [["auto", "Auto (recommended)"], ["satin", "Satin — follows the strokes"], ["satinfill", "Satin — one direction"],
-  ["fill", "Fill — tatami"], ["run", "Outline — running stitch"]];
+  ["fill", "Fill — tatami"], ["contour", "Contour — rings follow the edge"], ["run", "Outline — running stitch"]];
 
 function freeSpotY(h) {
   // stack new things under existing ones so they don't land on top of each other
@@ -668,6 +668,21 @@ function section(key, title, summary, inner) {
   if (id !== secFor) { secOpen = {}; secFor = id; }
   const open = !!secOpen[key];
   return `<details class="sec" data-sec="${key}"${open ? " open" : ""}><summary><span class="t">${title}</span><span class="s">${summary || ""}</span></summary><div class="sec-body">${inner}</div></details>`;
+}
+// ---- thread brand: the user's own spools (charts from Ink/Stitch); remembered in this browser
+const MACHINE_BRAND = "Husqvarna Viking (machine colors)";
+let threadBrand = (() => { try { return localStorage.getItem("thimble.brand") || MACHINE_BRAND; } catch (e) { return MACHINE_BRAND; } })();
+async function setThreadBrand(brand) {
+  threadBrand = brand || MACHINE_BRAND;
+  try { localStorage.setItem("thimble.brand", threadBrand); } catch (e) {}
+  if (!S.meta) return;
+  if (!S.meta.machineThreads) S.meta.machineThreads = S.meta.threads;
+  if (threadBrand === MACHINE_BRAND) S.meta.threads = S.meta.machineThreads;
+  else {
+    try { S.meta.threads = (await api("/api/threads/" + encodeURIComponent(threadBrand))).threads; }
+    catch (e) { S.meta.threads = S.meta.machineThreads; threadBrand = MACHINE_BRAND; }
+  }
+  renderProps(); if (S.built) renderChart();
 }
 function threadName(hex) {
   const ts = S.meta?.threads || [];
@@ -1211,7 +1226,7 @@ function renderChart() {
     <span>Sewing time</span><b>≈ ${Math.max(1, Math.round(st.minutes))} min</b>
     <span>Thread</span><b title="Top thread; bobbin ≈ ${U.thread(st.bobbin_m || 0)}">≈ ${U.thread(st.thread_m || 0)} <small class="muted">+ ${U.thread(st.bobbin_m || 0)} bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
   $("#spools").innerHTML = st.colors.map((c, i) => `<div class="spool${threadSel.has(c.hex.toLowerCase()) ? " on" : ""}" data-hex="${c.hex.toLowerCase()}" title="Click to pick for merging · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
-    <div class="t"><b>${i + 1}. ${esc(c.thread)}</b><span class="n">${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`).join("") ||
+    <div class="t"><b>${i + 1}. ${esc(threadBrand === MACHINE_BRAND ? c.thread : threadBrand.replace(/ (Rayon|Polyester|Embroidery)$/, "") + " " + threadName(c.hex).replace(/^≈ /, "≈ "))}</b><span class="n">${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`).join("") ||
     `<span class="muted" style="font-family:Hand,cursive;font-size:18px">Thread chart appears here.</span>`;
   const live = new Set(st.colors.map((c) => c.hex.toLowerCase()));
   threadSel = new Set([...threadSel].filter((h) => live.has(h)));
@@ -2230,6 +2245,7 @@ function openSettings() {
   $("#setFabric").innerHTML = Object.entries(S.meta.fabrics).map(([k, v]) => `<option value="${k}"${k === S.layout.fabric ? " selected" : ""}>${esc(v)}</option>`).join("");
   $("#setGroup").checked = S.layout.group_colors !== false;
   $("#setDensity").value = S.layout.density || "standard";
+  $("#setBrand").innerHTML = [MACHINE_BRAND, ...(S.meta.brands || [])].map((b) => `<option${b === threadBrand ? " selected" : ""}>${esc(b)}</option>`).join("");
   $("#setKey").value = ""; $("#setKey").type = "password"; $("#keyShow").textContent = "Show";
   $("#setKey").placeholder = S.meta.ai ? "Your key is saved - paste a new one only to replace it" : "Paste your key here (sk-ant-…)";
   const st = $("#aiStatus"); st.textContent = S.meta.ai ? "✓ Set up and ready" : "Not set up yet"; st.className = "ai-status " + (S.meta.ai ? "ok" : "no");
@@ -2267,6 +2283,7 @@ async function saveSettings() {
   S.layout.fabric = $("#setFabric").value;
   S.layout.density = $("#setDensity").value;
   S.layout.group_colors = $("#setGroup").checked;
+  if ($("#setBrand").value !== threadBrand) await setThreadBrand($("#setBrand").value);
   const fc = $("#fabricSwatches button.on"); if (fc) S.layout.fabric_color = fc.dataset.c;
   commit(true);
   const key = $("#setKey").value.trim(), ws = $("#setWorkspace").value.trim();
@@ -2506,6 +2523,7 @@ $("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e
   const [meta, fonts] = await Promise.all([api("/api/meta"), api("/api/fonts")]);
   S.meta = meta; S.fonts = fonts;
   if (meta.hosted) { S.meta.ai = !!webKey.key; S.meta.workspace = webKey.ws; }
+  if (threadBrand !== MACHINE_BRAND) setThreadBrand(threadBrand);
   const order = ["vp3", "zip", "shv", "pes", "dst", "jef", "exp"];
   $("#exportFormat").innerHTML = order.filter((k) => meta.formats[k]).map((k) => `<option value="${k}">${esc(meta.formats[k])}</option>`).join("");
   try {

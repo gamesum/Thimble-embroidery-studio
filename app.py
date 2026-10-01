@@ -244,6 +244,28 @@ def trace_to_lines():
     return jsonify(element=v)
 
 
+_THREADS = None
+
+
+def thread_brands():
+    global _THREADS
+    if _THREADS is None:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine", "data", "threads.json")
+        _THREADS = json.load(open(p, encoding="utf8"))["brands"]
+    return _THREADS
+
+
+@app.get("/api/threads/<path:brand>")
+def threads_for(brand):
+    """One thread brand's colour chart (from Ink/Stitch): [{hex, name, num}]."""
+    rows = thread_brands().get(brand)
+    if rows is None:
+        return err("Unknown thread brand.", 404)
+    resp = jsonify(threads=[dict(hex=h, name=("%s %s" % (num, n)).strip() if num else n, num=num, label=n) for h, n, num in rows])
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 @app.get("/api/meta")
 def meta():
     from pyembroidery.EmbThreadShv import get_thread_set
@@ -257,7 +279,7 @@ def meta():
                    formats={k: v for k, v in design.FORMATS.items() if v},
                    ai=False if HOSTED else bool(config().get("anthropic_key") or os.environ.get("ANTHROPIC_API_KEY")),
                    workspace="" if HOSTED else config().get("anthropic_workspace", ""),
-                   hosted=HOSTED)
+                   hosted=HOSTED, brands=sorted(thread_brands()))
 
 
 # ----------------------------------------------------------------------------- images

@@ -400,3 +400,6 @@ details.sec > summary:hover .t { color: var(--walnut); }
 section.folded > .fold-head::after { transform: rotate(-90deg); }
 section.folded > :not(.fold-head) { display: none !important; }
 section.swatch.grow.folded { flex: none; }
+
+.credit { position: fixed; right: 10px; bottom: 4px; font-size: 10.5px; color: var(--ink-3); opacity: .55; text-decoration: none; z-index: 1; }
+.credit:hover { opacity: 1; text-decoration: underline; }

@@ -193,6 +193,8 @@
       </select></div>
     <div class="field"><label>Preview fabric color</label><div class="fabric-swatches" id="fabricSwatches"></div></div>
     <label class="radio"><input type="checkbox" id="setGroup" checked> Group matching colors (fewer thread changes)</label>
+    <div class="field"><label for="setBrand">Your thread brand</label><select id="setBrand"></select>
+      <p class="muted small">Thread names and numbers match this brand's spools, and the color pickers offer its colors. Thread charts courtesy of the Ink/Stitch project.</p></div>
     <hr>
     <div class="ai-card">
       <h3>Read a picture with AI <span class="muted small">(optional)</span></h3>
@@ -234,6 +236,7 @@
 </dialog>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<a class="credit" href="https://inkstitch.org" target="_blank" rel="noopener">Embroidery fonts &amp; thread charts from Ink/Stitch</a>
 <script src="/static/app.js"></script>
 </body>
 </html>

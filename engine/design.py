@@ -641,7 +641,11 @@ def layer_objects(mask, style, P, entry=None):
         sub, (ox, oy), c = comps.pop(k)
         kind = sg.classify(sub, P) if style in (None, "", "auto") else style
         local_entry = None if cur is None else (cur[0] - ox / RES, cur[1] - oy / RES)
-        if kind in ("satinrows", "star"):
+        if kind == "contour":
+            objs = []
+            for poly in sg.mask_to_polygons(sub, crisp=True):
+                objs += sg.contour_fill(poly, P, start=local_entry)
+        elif kind in ("satinrows", "star"):
             objs = []
             for poly in sg.mask_to_polygons(sub, crisp=True):
                 objs += (sg.star_satin if kind == "star" else sg.satin_rows)(poly, P, start=local_entry)

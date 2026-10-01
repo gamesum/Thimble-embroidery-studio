@@ -295,6 +295,56 @@ def fill_shape(poly, P, angle=None, start=None):
     return _chain(pieces + top, poly, P.travel_length)
 
 
+def contour_fill(poly, P, start=None):
+    """Contour fill: rows that follow the shape's own edge, stepping inward ring by ring (the idea
+    behind Ink/Stitch's contour fill). Each ring is joined to the next with a tiny step, so the whole
+    shape sews as one continuous line and the texture echoes the outline instead of straight rows."""
+    spacing = P.fill_spacing
+    poly = poly.buffer(P.fill_pull_comp, join_style=1)
+    rings = []
+    g = poly
+    while not g.is_empty:
+        for part in (g.geoms if g.geom_type == "MultiPolygon" else [g]):
+            if part.area < spacing * spacing:
+                continue
+            for ring in [part.exterior] + list(part.interiors):
+                c = np.asarray(ring.coords)
+                if len(c) >= 4 and ring.length > 3 * spacing:
+                    rings.append(c)
+        g = g.buffer(-spacing, join_style=1, resolution=6)
+    if not rings:
+        return []
+    out, cur = [], None if start is None else np.asarray(start, float)
+    todo = list(range(len(rings)))
+    seq = []
+    L = min(P.fill_length, 2.5)
+    while todo:
+        if cur is None:
+            k = todo[0]
+        else:
+            k = min(todo, key=lambda i: float(np.min(np.hypot(*(rings[i][:, :2] - cur).T))))
+        todo.remove(k)
+        c = rings[k][:-1, :2]
+        j = 0 if cur is None else int(np.argmin(np.hypot(*(c - cur).T)))
+        c = np.vstack([c[j:], c[:j], c[j:j + 1]])
+        pts = run_points(c, L)
+        if seq and cur is not None and np.hypot(*(np.asarray(pts[0]) - cur)) > 2.5 * spacing + 0.5:
+            out.append(seq)  # a different branch: travel / trim between them
+            seq = []
+        seq += [tuple(p) for p in pts]
+        cur = np.asarray(seq[-1], float)
+    if seq:
+        out.append(seq)
+    pieces = []
+    if poly.area > 12:  # light underlay so the rings sit on something
+        up = poly.buffer(-P.fill_underlay_inset)
+        if not up.is_empty:
+            for part in (up.geoms if up.geom_type == "MultiPolygon" else [up]):
+                pieces += tatami(part, P.fill_angle + 90, P.fill_underlay_spacing, 3.0, 1, P.min_stitch,
+                                 P.travel_length, pieces[-1][-1] if pieces else start)
+    return _chain(pieces + [clean(o, P.min_stitch) for o in out], poly, P.travel_length)
+
+
 def _chain(pieces, poly, travel_len):
     """Join consecutive pieces with travel stitches when possible."""
     out = []
