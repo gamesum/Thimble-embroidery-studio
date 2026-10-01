@@ -498,6 +498,20 @@ def layer_objects(mask, style, P, entry=None):
     return objects, kinds
 
 
+def stretch_of(el):
+    """Free (non-proportional) resize on top of the element's own size: (kx, ky)."""
+    return (min(5.0, max(0.2, num(el.get("stretch_x"), 1.0))), min(5.0, max(0.2, num(el.get("stretch_y"), 1.0))))
+
+
+def _stretched(res, el):
+    """Stitch-level stretch, for things that come as stitches (embroidery fonts, stitch files)."""
+    kx, ky = stretch_of(el)
+    if kx == 1 and ky == 1:
+        return res
+    blocks, (w, h) = res
+    return ([dict(b, objects=[[(x * kx, y * ky) for x, y in o] for o in b["objects"]]) for b in blocks], (w * kx, h * ky))
+
+
 def element_blocks(el, P, fabric, progress=None):
     """Cached per element (position/rotation excluded). -> (blocks, (w_mm, h_mm))
     blocks: [{color, objects, kinds}] in element-local mm centred on (0,0)."""
@@ -512,12 +526,12 @@ def element_blocks(el, P, fabric, progress=None):
         pts = [p for b in blocks for o in b["objects"] for p in o]
         size = ((max(p[0] for p in pts) - min(p[0] for p in pts), max(p[1] for p in pts) - min(p[1] for p in pts))
                 if pts else (0, 0))
-        res = (blocks, size)
+        res = _stretched((blocks, size), el)
         _cache[key] = res
         return res
     fam = embfont.family(el.get("font")) if el.get("type") == "text" else None
     if fam:
-        res = _emb_text_blocks(el, fam, P)
+        res = _stretched(_emb_text_blocks(el, fam, P), el)
         if len(_cache) > 200:
             _cache.clear()
         _cache[key] = res
@@ -525,6 +539,13 @@ def element_blocks(el, P, fabric, progress=None):
     layers = element_layers(el)
     if not layers:
         return [], (0, 0)
+    kx, ky = stretch_of(el)
+    if kx != 1 or ky != 1:
+        # stretch the artwork itself (not the stitches), so the stitch spacing stays right
+        def grow(m):
+            nw, nh = max(1, int(round(m.shape[1] * kx))), max(1, int(round(m.shape[0] * ky)))
+            return cv2.resize(m.astype(np.uint8) * 255, (nw, nh), interpolation=cv2.INTER_LINEAR) > 127
+        layers = [(c, grow(m), (int(round(ox * kx)), int(round(oy * ky))), st) for c, m, (ox, oy), st in layers]
     W = max(m.shape[1] + ox for _, m, (ox, oy), _ in layers)
     H = max(m.shape[0] + oy for _, m, (ox, oy), _ in layers)
     cx, cy = W / 2 / RES, H / 2 / RES

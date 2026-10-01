@@ -538,7 +538,11 @@ function selectField(id, label, opts, val) {
   return field(label, `<select id="${id}">${opts.map(([v, t]) => `<option value="${v}"${v === val ? " selected" : ""}>${t}</option>`).join("")}</select>`);
 }
 function posFields(el) {
-  return `<div class="two">${field(U.lab("Across (mm)"), `<input type="number" id="p-x" step="${U.step(0.5)}" value="${U.show(el.x)}">`)}${field(U.lab("Down (mm)"), `<input type="number" id="p-y" step="${U.step(0.5)}" value="${U.show(el.y)}">`)}</div>
+  const st = el.stretch_x || el.stretch_y;
+  return (st ? `<div class="field stretch-note"><span>Stretched${el.stretch_x ? ` ${Math.round(el.stretch_x * 100)}% wide` : ""}${el.stretch_y ? ` ${Math.round(el.stretch_y * 100)}% tall` : ""}</span>
+      <button type="button" class="btn small" id="p-unstretch">Undo stretch</button></div>` : "") +
+    `<p class="hint">Drag a corner or side to stretch; hold Shift to keep the proportions.</p>` +
+    `<div class="two">${field(U.lab("Across (mm)"), `<input type="number" id="p-x" step="${U.step(0.5)}" value="${U.show(el.x)}">`)}${field(U.lab("Down (mm)"), `<input type="number" id="p-y" step="${U.step(0.5)}" value="${U.show(el.y)}">`)}</div>
     ${field("Place in the hoop", `<div class="align-grid">
       <button class="chip" data-place="left" title="Line up with the left edge of the sewing field">Left</button>
       <button class="chip" data-place="cx" title="Center across">Center</button>
@@ -812,6 +816,8 @@ function wireProps(el) {
     if (b.dataset.trace) { el.trace = true; el.trace_line = el.trace_line || "run"; } else { delete el.trace; }
     commit(); scheduleBuild(); save_local(); renderProps(); renderLayers();
   }));
+  const us = $("#p-unstretch");
+  if (us) us.onclick = () => { beginEdit(); delete el.stretch_x; delete el.stretch_y; commit(); scheduleBuild(0); save_local(); renderProps(); };
   const tl = $("#p-trace_line"); if (tl) tl.onchange = () => { setProp(el, "trace_line", tl.value); renderProps(); };
   const tr = $("#p-trace_repeat"); if (tr) tr.onchange = () => setProp(el, "trace_repeat", +tr.value);
   if ($("#p-trace_width")) wireRange(el, "trace_width");
@@ -1260,6 +1266,19 @@ function draw() {
       ctx.strokeStyle = "rgba(184,50,42,.55)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
       ctx.strokeRect(ax, ay, bx2 - ax, by2 - ay); ctx.setLineDash([]);
     }
+    const gh = groupHandles();
+    if (gh) {
+      const [tx, ty] = mm2px((gh.box.x0 + gh.box.x1) / 2, gh.box.y0);
+      ctx.strokeStyle = "#b8322a"; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(gh.rot[0], gh.rot[1]); ctx.stroke();
+      for (const [k, v] of Object.entries(gh)) {
+        if (k === "box") continue;
+        const [x, y] = v;
+        ctx.fillStyle = "#fff"; ctx.strokeStyle = "#b8322a"; ctx.lineWidth = 1.6;
+        if (k === "rot") { ctx.beginPath(); ctx.arc(x, y, 6.5, 0, 7); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 3, 0.4, 5.2); ctx.stroke(); }
+        else { ctx.fillRect(x - 5, y - 5, 10, 10); ctx.strokeRect(x - 5, y - 5, 10, 10); }
+      }
+    }
   }
   if (drag && drag.kind === "marquee") {
     const [ax, ay] = mm2px(drag.x0, drag.y0), [bx2, by2] = mm2px(drag.x1, drag.y1);
@@ -1317,10 +1336,28 @@ function hitElement(mx, my) {
   }
   return -1;
 }
+function groupHandles() {
+  // the group box's 8 handles + rotate knob, in screen px (the box is square to the hoop)
+  const g = groupBox(selected());
+  if (!g) return null;
+  const x0 = g.x0 - 1.5, y0 = g.y0 - 1.5, x1 = g.x1 + 1.5, y1 = g.y1 + 1.5, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const out = { box: { x0, y0, x1, y1 } };
+  for (const k of HANDLE_KEYS) { const [sx, sy] = HANDLE_SIGN[k]; out[k] = mm2px(cx + (sx * (x1 - x0)) / 2, cy + (sy * (y1 - y0)) / 2); }
+  const [tx, ty] = mm2px(cx, y0);
+  out.rot = [tx, ty - 22];
+  return out;
+}
 function hitHandle(px, py) {
-  const el = S.layout.elements[S.sel], bx = el && !el.hidden && selBox(el, S.sel);
-  if (!bx) return null;
-  const hs = handles(el, bx);
+  let hs;
+  if (multi.size > 1) {
+    hs = groupHandles();
+    if (!hs) return null;
+    hs = Object.fromEntries(Object.entries(hs).filter(([k]) => k !== "box"));
+  } else {
+    const el = S.layout.elements[S.sel], bx = el && !el.hidden && selBox(el, S.sel);
+    if (!bx) return null;
+    hs = handles(el, bx);
+  }
   let best = null, bd = 13; // generous grab radius (px)
   for (const [k, [hx, hy]] of Object.entries(hs)) {
     const d = Math.hypot(px - hx, py - hy);
@@ -1341,7 +1378,17 @@ cv.addEventListener("pointerdown", (e) => {
   endSew(); // clicking the design ends the sew-out preview and carries on as a normal click
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   const [mx, my] = px2mm(px, py);
-  const h = multi.size > 1 ? null : hitHandle(px, py);
+  const h = hitHandle(px, py);
+  if (h && multi.size > 1) {
+    const gh = groupHandles(), idx = selected();
+    beginEdit();
+    drag = { kind: h === "rot" ? "grot" : "gresize", handle: h, box: gh.box,
+      items: idx.map((i) => ({ el: S.layout.elements[i], start: JSON.parse(JSON.stringify(S.layout.elements[i])) })),
+      cx: (gh.box.x0 + gh.box.x1) / 2, cy: (gh.box.y0 + gh.box.y1) / 2 };
+    drag.a0 = Math.atan2(my - drag.cy, mx - drag.cx);
+    cv.setPointerCapture(e.pointerId);
+    return;
+  }
   if (h) {
     const el = S.layout.elements[S.sel], b = S.built.elements[S.sel];
     beginEdit();
@@ -1375,7 +1422,34 @@ cv.addEventListener("pointerdown", (e) => {
   draw();
 });
 
+function setStretch(el, key, v) {
+  v = Math.round(clamp(v, 0.2, 5) * 1000) / 1000;
+  if (Math.abs(v - 1) < 0.01) delete el[key]; else el[key] = v;
+}
+// resize one element by fx (across) and fy (down), in its own frame, from its state s0 at the
+// start of the drag. Its natural size takes one factor; a stretch takes the difference, so
+// pictures/drawings/text can be squashed or widened. Returns the factors actually applied.
+function scaleElement(el, s0, fx, fy) {
+  const kx0 = s0.stretch_x || 1, ky0 = s0.stretch_y || 1;
+  if (el.type === "text") {
+    el.height_mm = Math.round(clamp(s0.height_mm * fy, 3, 150) * 10) / 10;
+    const a = el.height_mm / s0.height_mm;
+    setStretch(el, "stretch_x", (kx0 * fx) / a);
+    return { fx: ((el.stretch_x || 1) / kx0) * a, fy: a };
+  }
+  if (el.type === "shape") {
+    el.width_mm = Math.round(clamp(s0.width_mm * fx, 2, 400) * 10) / 10;
+    el.height_mm = Math.round(clamp(s0.height_mm * fy, 2, 400) * 10) / 10;
+    return { fx: el.width_mm / s0.width_mm, fy: el.height_mm / s0.height_mm };
+  }
+  el.width_mm = Math.round(clamp(s0.width_mm * fx, 3, 400) * 10) / 10;
+  const a = el.width_mm / s0.width_mm;
+  setStretch(el, "stretch_y", (ky0 * fy) / a);
+  return { fx: a, fy: ((el.stretch_y || 1) / ky0) * a };
+}
+
 function applyResize(e, mx, my) {
+  // corners and sides stretch freely; hold Shift to keep the proportions
   const d = drag, el = d.el, s0 = d.start;
   const [sx, sy] = HANDLE_SIGN[d.handle];
   // work in the element's frame at the moment the drag started
@@ -1383,41 +1457,51 @@ function applyResize(e, mx, my) {
   const lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
   const W = d.w0, H = d.h0;
   const ax = (-sx * W) / 2, ay = (-sy * H) / 2; // opposite corner / edge stays put
-  let fx = 1, fy = 1;
-  const corner = sx !== 0 && sy !== 0;
-  if (corner || el.type === "image" || el.type === "vector" || el.type === "stitches" || (el.type === "text" && sy !== 0)) {
-    // proportional: project the pointer onto the handle's diagonal (or axis)
-    const vx = sx ? sx * W : 0, vy = sy ? sy * H : 0;
-    const t = ((lx - ax) * vx + (ly - ay) * vy) / (vx * vx + vy * vy);
-    fx = fy = clamp(t, 0.08, 12);
-  } else if (sx !== 0) {
-    fx = clamp((sx * (lx - ax)) / W, 0.08, 12);
-  } else {
-    fy = clamp((sy * (ly - ay)) / H, 0.08, 12);
+  let fx = sx ? clamp((sx * (lx - ax)) / W, 0.08, 12) : 1;
+  let fy = sy ? clamp((sy * (ly - ay)) / H, 0.08, 12) : 1;
+  if (e.shiftKey) {
+    if (sx && sy) {
+      const vx = sx * W, vy = sy * H;
+      fx = fy = clamp(((lx - ax) * vx + (ly - ay) * vy) / (vx * vx + vy * vy), 0.08, 12);
+    } else {
+      fx = fy = sx ? fx : fy;
+    }
   }
-  // text side handles stretch the letter spacing, which scales only across
-  if (el.type === "text" && sx !== 0 && sy === 0) {
-    const n = Math.max(1, (s0.text || "").replace(/\s/g, "").length - 1);
-    const grow = W * (fx - 1);
-    el.letter_spacing = Math.round(clamp((s0.letter_spacing || 0) + grow / n / s0.height_mm, -0.1, 1.5) * 1000) / 1000;
-    fy = 1;
-  } else if (el.type === "text") {
-    el.height_mm = Math.round(clamp(s0.height_mm * fx, 3, 150) * 10) / 10;
-    fx = fy = el.height_mm / s0.height_mm;
-  } else if (el.type === "shape") {
-    el.width_mm = Math.round(clamp(s0.width_mm * fx, 2, 400) * 10) / 10;
-    el.height_mm = Math.round(clamp(s0.height_mm * fy, 2, 400) * 10) / 10;
-    fx = el.width_mm / s0.width_mm; fy = el.height_mm / s0.height_mm;
-  } else {
-    el.width_mm = Math.round(clamp(s0.width_mm * fx, 5, 400) * 10) / 10;
-    fx = fy = el.width_mm / s0.width_mm;
-  }
+  ({ fx, fy } = scaleElement(el, s0, fx, fy));
   // new centre: anchor + half the new extent, back in design coordinates
   const cxL = sx ? ax + (sx * W * fx) / 2 : 0, cyL = sy ? ay + (sy * H * fy) / 2 : 0;
   const ra = ((s0.rotation || 0) * Math.PI) / 180;
   el.x = Math.round((s0.x + cxL * Math.cos(ra) - cyL * Math.sin(ra)) * 10) / 10;
   el.y = Math.round((s0.y + cxL * Math.sin(ra) + cyL * Math.cos(ra)) * 10) / 10;
   S.vis[el.id] = { fx, fy };
+}
+
+function applyGroupResize(e, mx, my) {
+  // several pieces: scale the whole group from the opposite side of its box
+  const d = drag, b = d.box;
+  const [sx, sy] = HANDLE_SIGN[d.handle];
+  const W = b.x1 - b.x0, H = b.y1 - b.y0;
+  const ax = sx > 0 ? b.x0 : sx < 0 ? b.x1 : (b.x0 + b.x1) / 2;
+  const ay = sy > 0 ? b.y0 : sy < 0 ? b.y1 : (b.y0 + b.y1) / 2;
+  let fx = sx ? clamp((sx * (mx - ax)) / W, 0.08, 12) : 1;
+  let fy = sy ? clamp((sy * (my - ay)) / H, 0.08, 12) : 1;
+  if (e.shiftKey) {
+    if (sx && sy) {
+      const vx = sx * W, vy = sy * H;
+      fx = fy = clamp(((mx - ax) * vx + (my - ay) * vy) / (vx * vx + vy * vy), 0.08, 12);
+    } else fx = fy = sx ? fx : fy;
+  }
+  for (const { el, start } of d.items) {
+    // a piece turned on its side swaps the factors; one at an odd angle scales evenly
+    const r = (((start.rotation || 0) % 180) + 180) % 180;
+    let ex = fx, ey = fy;
+    if (Math.abs(r - 90) < 10) [ex, ey] = [fy, fx];
+    else if (r > 10 && r < 170) ex = ey = Math.sqrt(fx * fy);
+    const got = scaleElement(el, start, ex, ey);
+    el.x = Math.round((ax + (start.x - ax) * fx) * 10) / 10;
+    el.y = Math.round((ay + (start.y - ay) * fy) * 10) / 10;
+    S.vis[el.id] = got;
+  }
 }
 
 cv.addEventListener("pointermove", (e) => {
@@ -1443,7 +1527,7 @@ cv.addEventListener("pointermove", (e) => {
     draw();
     return;
   }
-  const el = drag.el;
+  const el = drag.el || null;
   if (drag.kind === "move") {
     const snap = e.shiftKey ? 0.1 : 0.5;
     el.x = Math.round((mx - drag.dx) / snap) * snap; el.y = Math.round((my - drag.dy) / snap) * snap;
@@ -1460,6 +1544,18 @@ cv.addEventListener("pointermove", (e) => {
     }
   } else if (drag.kind === "resize") {
     applyResize(e, mx, my);
+  } else if (drag.kind === "gresize") {
+    applyGroupResize(e, mx, my);
+  } else if (drag.kind === "grot") {
+    let da = ((Math.atan2(my - drag.cy, mx - drag.cx) - drag.a0) * 180) / Math.PI;
+    if (!e.shiftKey) da = Math.round(da / 5) * 5;
+    const r = (da * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+    for (const { el: it, start } of drag.items) {
+      const dx = start.x - drag.cx, dy = start.y - drag.cy;
+      it.x = Math.round((drag.cx + dx * c - dy * s) * 10) / 10;
+      it.y = Math.round((drag.cy + dx * s + dy * c) * 10) / 10;
+      it.rotation = (((start.rotation || 0) + da + 540) % 360) - 180;
+    }
   } else if (drag.kind === "rot") {
     let a = drag.start.rotation + ((Math.atan2(my - el.y, mx - el.x) - drag.a0) * 180) / Math.PI;
     a = ((a + 540) % 360) - 180;
@@ -1489,7 +1585,7 @@ cv.addEventListener("pointerup", () => {
     return;
   }
   commit(true); save_local(); renderProps(); renderLayers();
-  scheduleBuild(k === "resize" ? 0 : 350);
+  scheduleBuild(k === "resize" || k === "gresize" ? 0 : 350);
 });
 cv.addEventListener("wheel", (e) => {
   // zoom toward the cursor, like a slicer: the point under the mouse stays put

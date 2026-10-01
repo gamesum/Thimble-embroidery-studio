@@ -368,3 +368,5 @@ details.sec > summary:hover .t { color: var(--walnut); }
 
 .recreate-card { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(176, 138, 92, .08); border: 1px dashed var(--stitch); }
 .recreate-card .btn { margin: 4px 6px 4px 0; }
+
+.stretch-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
