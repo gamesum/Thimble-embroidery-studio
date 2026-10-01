@@ -267,7 +267,7 @@ function loadExample(key) {
 
 // ------------------------------------------------------------------ elements
 const SHAPES = [["heart", "Heart"], ["star", "Star"], ["circle", "Circle"], ["ring", "Ring"], ["rect", "Block"],
-  ["frame", "Frame"], ["double_frame", "Double frame"], ["offset_frame", "Offset frame"], ["line", "Line"]];
+  ["frame", "Frame"], ["double_frame", "Double frame"], ["offset_frame", "Offset frame"], ["line", "Line"], ["tack", "Tack line"]];
 const TEXT_STYLES = [["auto", "Auto - satin, or fill on big bold letters"], ["satin", "Satin sweeps - long glossy stitches across every stroke"], ["rows", "Straight across - every stitch side to side, one direction"], ["fill", "Fill - rows of short stitches"]];
 const STYLES = [["auto", "Auto (recommended)"], ["satin", "Satin — follows the strokes"], ["satinfill", "Satin — one direction"],
   ["fill", "Fill — tatami"], ["rows", "Satin rows — straight across, all one direction"], ["contour", "Contour — rings follow the edge"], ["run", "Outline — running stitch"]];
@@ -878,6 +878,13 @@ function renderProps() {
       section("border", "Border", el.outline ? `${U.len(el.outline.width_mm)} · ${el.outline.only ? "edge only" : "sewn " + (el.outline.first ? "first" : "last")}` : "none", outlineFields(el)) +
       section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}${el.stretch_x || el.stretch_y ? " · stretched" : ""}`, posFields(el));
   } else if (el.type === "shape") {
+    if (el.kind === "tack") {
+      h += `<h2>Tack line</h2><p class="hint">One plain line of running stitch - no embroidery. Good for tacking fabric, batting or a patch down before the real stitching. Drag it, turn it with the top knob, stretch it with the side handles.</p>` + field("Kind", `<div class="chips">${SHAPES.map(([k, t]) => `<button class="chip${k === el.kind ? " on" : ""}" data-kind="${k}">${t}</button>`).join("")}</div>`) +
+        field(U.lab("Length (mm)"), `<input type="number" id="p-width_mm" step="${U.step(1)}" value="${U.show(el.width_mm)}">`) +
+        rangeField("p-stitch_mm", "Stitch length (mm)", 1, 8, 0.5, el.stitch_mm || 3, "len") +
+        threadField("p-color", "Thread", el.color) +
+        section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+    } else
     h += `<h2>Shape</h2>` + field("Kind", `<div class="chips">${SHAPES.map(([k, t]) => `<button class="chip${k === el.kind ? " on" : ""}" data-kind="${k}">${t}</button>`).join("")}</div>`) +
       `<div class="two">${field(U.lab("Width (mm)"), `<input type="number" id="p-width_mm" step="${U.step(0.5)}" value="${U.show(el.width_mm)}">`)}${field(U.lab("Height (mm)"), `<input type="number" id="p-height_mm" step="${U.step(0.5)}" value="${U.show(el.height_mm)}">`)}</div>` +
       (["frame", "double_frame", "offset_frame", "ring", "line"].includes(el.kind) ? rangeField("p-stroke_mm", "Line thickness (mm)", 0.6, 8, 0.1, el.stroke_mm || 1.2, "len") : "") +
@@ -997,7 +1004,7 @@ function wireProps(el) {
     }
     setProp(el, "text", nw);
     if ($("#p-letters")) $("#p-letters").innerHTML = letterChips(el); if (had !== t.value.includes("\n")) { renderProps(); $("#p-text").focus(); } };
-  ["height_mm", "letter_spacing", "arc", "line_spacing", "stroke_mm"].forEach((k) => wireRange(el, k));
+  ["height_mm", "letter_spacing", "arc", "line_spacing", "stroke_mm", "stitch_mm"].forEach((k) => wireRange(el, k));
   wireRange(el, "rotation", false);
   if (el.type === "image" || el.type === "vector" || el.type === "stitches") wireRange(el, "width_mm");
   $$("[data-sc]").forEach((inp) => (inp.oninput = () => {

@@ -731,6 +731,15 @@ def element_blocks(el, P, fabric, progress=None):
         res = _stretched((blocks, size), el)
         _cache[key] = res
         return res
+    if el.get("type") == "shape" and el.get("kind") == "tack":
+        # a plain single line of running stitch, for tacking things down (no embroidery, no tie-off fuss)
+        w = max(2.0, num(el.get("width_mm"), 40))
+        L = min(max(num(el.get("stitch_mm"), 3.0), 1.0), 8.0)
+        n = max(1, int(round(w / L)))
+        line = [(-w / 2 + w * i / n, 0.0) for i in range(n + 1)]
+        res = ([dict(color=el.get("color", "#222222"), objects=[line], kinds=["run"])], (w, 2.0))
+        _cache[key] = res
+        return res
     fam = embfont.family(el.get("font")) if el.get("type") == "text" else None
     if fam:
         res = _stretched(_emb_text_blocks(el, fam, P), el)
