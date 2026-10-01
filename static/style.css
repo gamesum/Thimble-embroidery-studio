@@ -393,3 +393,10 @@ details.sec > summary:hover .t { color: var(--walnut); }
 .stage-tools .toggle { background: rgba(251, 248, 242, .95); padding: 6px 12px; border-radius: 12px; box-shadow: 0 2px 8px rgba(60, 35, 15, .12); }
 
 .layer .grp { color: var(--walnut); font-size: 12px; }
+
+/* foldable left-hand sections */
+.fold-head { cursor: pointer; user-select: none; display: flex; align-items: baseline; gap: 6px; }
+.fold-head::after { content: "▾"; margin-left: auto; font-size: 14px; color: var(--ink-3); transition: transform .15s; }
+section.folded > .fold-head::after { transform: rotate(-90deg); }
+section.folded > :not(.fold-head) { display: none !important; }
+section.swatch.grow.folded { flex: none; }

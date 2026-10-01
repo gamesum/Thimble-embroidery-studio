@@ -1012,6 +1012,121 @@ def satin_fill(poly, P, angle=None, start=None):
     return _chain(pieces + top, poly, P.travel_length)
 
 
+def satin_rows(poly, P, angle=None, start=None, max_len=12.0):
+    """Side-to-side satin across a solid shape: one straight stitch per row from edge to edge, the
+    rows packed at satin spacing - the long glossy pass. Rows longer than the machine can take in one
+    stitch (max_len) are split at scattered points so no groove lines up. Falls back to satin_fill
+    if the rows would have to jump across a gap (very concave shapes)."""
+    from shapely import affinity
+    from shapely.geometry import LineString
+    if angle is None:
+        rect = poly.minimum_rotated_rectangle
+        c = list(rect.exterior.coords)
+        e1 = (c[1][0] - c[0][0], c[1][1] - c[0][1])
+        e2 = (c[2][0] - c[1][0], c[2][1] - c[1][1])
+        short = e1 if math.hypot(*e1) < math.hypot(*e2) else e2
+        angle = math.degrees(math.atan2(short[1], short[0]))
+    poly = poly.buffer(P.pull_comp * 0.8, join_style=1)
+    # rotate so the stitches lie along x; rows step along y
+    cx, cy = poly.centroid.x, poly.centroid.y
+    rp = affinity.rotate(poly, -angle, origin=(cx, cy))
+    x0, y0, x1, y1 = rp.bounds
+    step = P.satin_spacing / 2
+    rows = []
+    y = y0 + step / 2
+    while y < y1:
+        seg = rp.intersection(LineString([(x0 - 1, y), (x1 + 1, y)]))
+        parts = [g for g in getattr(seg, "geoms", [seg]) if not g.is_empty and g.length > 0.05]
+        if len(parts) > 1:
+            return satin_fill(poly.buffer(-P.pull_comp * 0.8), P, angle=angle, start=start)
+        if parts:
+            xs = [p[0] for p in parts[0].coords]
+            rows.append((min(xs), max(xs), y))
+        y += step
+    if not rows:
+        return []
+    pts = []
+    for k, (a, b, yy) in enumerate(rows):
+        pts.append((a, yy) if k % 2 == 0 else (b, yy))
+        pts.append((b, yy) if k % 2 == 0 else (a, yy))
+    # each row is one pass; consecutive rows join at the edge (zig-zag)
+    zig = [pts[0]]
+    for k in range(1, len(rows)):
+        zig.append(pts[2 * k - 1])
+        zig.append(pts[2 * k])
+    zig.append(pts[-1])
+    out = []
+    golden = 0.0
+    for p in zig:
+        if out:
+            a = out[-1]
+            d = math.hypot(p[0] - a[0], p[1] - a[1])
+            if d > max_len:
+                n = int(math.ceil(d / max_len))
+                golden = (golden + 0.618) % 1.0  # scattered split points, never a straight groove
+                for j in range(n - 1):
+                    t = (j + 0.3 + 0.4 * golden) / n
+                    out.append((a[0] + (p[0] - a[0]) * t, a[1] + (p[1] - a[1]) * t))
+        out.append(p)
+    back = lambda q: affinity.rotate(LineString([q, (q[0] + 1e-6, q[1])]), angle, origin=(cx, cy)).coords[0]
+    top = [tuple(back(q)) for q in out]
+    # underlay: an edge walk just inside the outline plus a light zig-zag across the stitches
+    pieces = []
+    inner = poly.buffer(-max(0.4, P.underlay_inset))
+    if not inner.is_empty and poly.area > 6:
+        for part in (inner.geoms if inner.geom_type == "MultiPolygon" else [inner]):
+            pieces += tatami(part, angle + 90, 1.6, 2.5, 1, P.min_stitch, P.travel_length, start)
+    return _chain(pieces + [clean(top, P.min_stitch * 0.6)], poly, P.travel_length)
+
+
+def star_satin(poly, P, start=None, max_len=12.0):
+    """A star sewn the way digitizers do it: one diamond per point (centre, inner corner, tip,
+    inner corner), each with satin running across the arm, all meeting cleanly in the middle."""
+    from shapely.geometry import Polygon
+    c = poly.centroid
+    pts = list(poly.exterior.coords)[:-1]
+    if len(pts) < 8:
+        return satin_rows(poly, P, start=start, max_len=max_len)
+    r = [math.hypot(x - c.x, y - c.y) for x, y in pts]
+    n = len(pts)
+    # tips: the star's points are the corners of its convex hull; a rounded tip gives a little
+    # cluster of hull corners - keep the farthest one of each cluster
+    hull = set(poly.convex_hull.exterior.coords)
+    cand = [i for i in range(n) if pts[i] in hull and r[i] > 0.7 * max(r)]
+    ang = lambda i: math.atan2(pts[i][1] - c.y, pts[i][0] - c.x)
+    cand.sort(key=ang)
+    groups = []
+    for i in cand:
+        if groups and abs(ang(i) - ang(groups[-1][-1])) < math.radians(20):
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    if len(groups) > 1 and (ang(groups[0][0]) + 2 * math.pi - ang(groups[-1][-1])) < math.radians(20):
+        groups[0] = groups.pop() + groups[0]
+    tips = sorted(max(g, key=lambda i: r[i]) for g in groups)
+    if len(tips) < 3:
+        return satin_rows(poly, P, start=start, max_len=max_len)
+    out = []
+    cur = start
+    for t_i, t in enumerate(tips):
+        prev_t, next_t = tips[t_i - 1], tips[(t_i + 1) % len(tips)]
+        # inner corners: the closest-to-centre points between this tip and its neighbours
+        span_a = [(i % n) for i in range(prev_t + 1, t + (n if t <= prev_t else 0))]
+        span_b = [(i % n) for i in range(t + 1, next_t + (n if next_t <= t else 0))]
+        if not span_a or not span_b:
+            continue
+        ia = min(span_a, key=lambda i: r[i])
+        ib = min(span_b, key=lambda i: r[i])
+        kite = Polygon([(c.x, c.y), pts[ia], pts[t], pts[ib]]).buffer(0.25, join_style=2)  # overlap neighbours
+        tx, ty = pts[t][0] - c.x, pts[t][1] - c.y
+        ang = math.degrees(math.atan2(ty, tx)) + 90  # stitches across the arm
+        part = satin_rows(kite, P, angle=ang, start=cur, max_len=max_len)
+        if part:
+            out += part
+            cur = part[-1][-1]
+    return out
+
+
 def border_satin(poly, width, P, start=None):
     """Satin border following an outline ring (for outlined lettering / badges).
     poly is the ring's centre-line polygon; returns list of point lists (mm)."""

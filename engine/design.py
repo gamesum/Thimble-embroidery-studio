@@ -127,8 +127,13 @@ def element_layers(el):
                 layers.append((color, sub, (0, 0), style))
         return _with_outline(el, m, style, layers)
     if t == "shape":
-        m = shape_mask(el.get("kind", "heart"), num(el.get("width_mm"), 20), num(el.get("height_mm"), 20),
+        kind = el.get("kind", "heart")
+        m = shape_mask(kind, num(el.get("width_mm"), 20), num(el.get("height_mm"), 20),
                        num(el.get("stroke_mm"), 1.2))
+        if style in (None, "", "auto"):
+            # long glossy satin passes, like big lettering: straight rows across solid shapes,
+            # one diamond per point on a star, and satin following the line on rings/frames
+            style = {"heart": "satinrows", "circle": "satinrows", "rect": "satinrows", "star": "star"}.get(kind, "satin")
         return _with_outline(el, m, style)
     if t == "vector":
         return vector_layers(el)
@@ -551,7 +556,11 @@ def layer_objects(mask, style, P, entry=None):
         sub, (ox, oy), c = comps.pop(k)
         kind = sg.classify(sub, P) if style in (None, "", "auto") else style
         local_entry = None if cur is None else (cur[0] - ox / RES, cur[1] - oy / RES)
-        if kind == "satin" and style == "satin":
+        if kind in ("satinrows", "star"):
+            objs = []
+            for poly in sg.mask_to_polygons(sub, crisp=True):
+                objs += (sg.star_satin if kind == "star" else sg.satin_rows)(poly, P, start=local_entry)
+        elif kind == "satin" and style == "satin":
             # asked for satin on purpose: let the sweeps run up to 12 mm (the machine's longest
             # single stitch is 12.7) before splitting them
             objs = sg.satin_shape(sub, replace(P, satin_max_width=max(P.satin_max_width, 12.0)), local_entry)

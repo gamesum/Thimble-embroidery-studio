@@ -513,6 +513,40 @@ function ungroupSelected() {
   commit(true); save_local(); renderLayers(); renderProps();
   toast("Ungrouped - each piece moves on its own again.", "good");
 }
+// ---- copy / paste (works across Thimble tabs on this computer too)
+const clip = {
+  get() { try { return JSON.parse(localStorage.getItem("thimble.clip") || "null") || clip.mem; } catch (e) { return clip.mem; } },
+  set(v) { clip.mem = v; try { localStorage.setItem("thimble.clip", JSON.stringify(v)); } catch (e) {} },
+  mem: null, pastes: 0,
+};
+function copySelected(cut = false) {
+  const idx = selected();
+  if (!idx.length) return;
+  clip.set({ elements: idx.map((i) => JSON.parse(JSON.stringify(S.layout.elements[i]))), images: Object.fromEntries(idx.map((i) => S.layout.elements[i]).filter((e) => e.type === "image").map((e) => [e.image_id, S.images[e.image_id] ? { aspect: S.images[e.image_id].aspect, colors: S.images[e.image_id].colors } : {}])) });
+  clip.pastes = 0;
+  if (cut) { if (multi.size > 1) removeSelected(); else removeElement(S.sel); toast(`Cut ${idx.length === 1 ? "1 piece" : idx.length + " pieces"} - Ctrl+V to paste.`); }
+  else toast(`Copied ${idx.length === 1 ? "1 piece" : idx.length + " pieces"} - Ctrl+V to paste.`);
+}
+function pasteClip() {
+  const c = clip.get();
+  if (!c || !c.elements?.length) { toast("Nothing copied yet - select something and press Ctrl+C."); return; }
+  clip.pastes++;
+  const off = 5 * clip.pastes, groups = {};
+  commit(true); beginEdit();
+  const fresh = c.elements.map((e0) => {
+    const e = JSON.parse(JSON.stringify(e0));
+    e.id = uid(); e.x = Math.round((e.x + off) * 10) / 10; e.y = Math.round((e.y + off) * 10) / 10;
+    if (e.group) e.group = groups[e.group] || (groups[e.group] = "g" + uid());
+    if (e.type === "image" && !S.images[e.image_id]) S.images[e.image_id] = Object.assign({ image_id: e.image_id }, c.images?.[e.image_id] || {});
+    return e;
+  });
+  S.layout.elements.push(...fresh);
+  commit(true);
+  clearMulti();
+  if (fresh.length > 1) fresh.forEach((e) => multi.add(e.id));
+  S.sel = S.layout.elements.length - 1;
+  renderLayers(); renderProps(); scheduleBuild(0); save_local();
+}
 function duplicateSelected() {
   // copy the whole selection; copies of a group become a new group of their own
   const idx = selected();
@@ -2264,6 +2298,22 @@ new ResizeObserver(() => resize()).observe($("#hoopWrap")); // redraw whenever t
 $("#showArt").onchange = draw;
 $("#showJumps").onchange = draw;
 window.addEventListener("resize", resize);
+// left-hand sections fold away: click the heading (remembered for next time)
+(() => {
+  let folded = {};
+  try { folded = JSON.parse(localStorage.getItem("thimble.fold") || "{}"); } catch (e) {}
+  $$(".panel.left > section.swatch").forEach((sec, k) => {
+    const h = sec.querySelector(":scope > h2");
+    if (!h) return;
+    const key = h.textContent.trim().split(/\s/)[0] + k;
+    h.classList.add("fold-head"); h.tabIndex = 0; h.setAttribute("role", "button");
+    const apply = () => { sec.classList.toggle("folded", !!folded[key]); h.setAttribute("aria-expanded", String(!folded[key])); };
+    const flip = () => { folded[key] = !folded[key]; apply(); try { localStorage.setItem("thimble.fold", JSON.stringify(folded)); } catch (e) {} resize(); };
+    h.onclick = flip;
+    h.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } };
+    apply();
+  });
+})();
 document.addEventListener("keydown", (e) => {
   const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
@@ -2276,6 +2326,11 @@ document.addEventListener("keydown", (e) => {
     if (multi.size <= 1) clearMulti();
     renderLayers(); renderProps(); draw(); return;
   }
+  if ((e.ctrlKey || e.metaKey) && ["c", "x"].includes(e.key.toLowerCase()) && !window.getSelection()?.toString()) {
+    if (selected().length) { e.preventDefault(); copySelected(e.key.toLowerCase() === "x"); }
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") { e.preventDefault(); pasteClip(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
     e.preventDefault(); e.shiftKey ? ungroupSelected() : groupSelected(); return;
   }
