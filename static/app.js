@@ -1282,10 +1282,18 @@ function renderSpoolTools() {
     }));
     $("#mergeCancel").onclick = () => { threadSel.clear(); renderChart(); draw(); };
   } else if (n >= 2) {
-    host.innerHTML = `<button type="button" class="btn small" id="simplify" title="Merge threads that look the same">Simplify colors</button>
+    const cnt = {}; (S.built?.stats?.colors || []).forEach((c) => { const h = c.hex.toLowerCase(); cnt[h] = (cnt[h] || 0) + 1; });
+    const rep = (threadSel.size ? [...threadSel] : Object.keys(cnt)).filter((h) => cnt[h] > 1 && !(S.layout.force_group || []).includes(h));
+    host.innerHTML = (rep.length ? `<button type="button" class="btn small primary" id="joinRep" title="Sew every piece of that color in one go, even if it means some now sit under a piece that used to cover them">Sew ${rep.length > 1 ? "repeated colors" : esc(threadName(rep[0]))} together</button>` : "") +
+      `<button type="button" class="btn small" id="simplify" title="Merge threads that look the same">Simplify colors</button>
       <span class="muted">${threadSel.size ? "Showing where that thread sews · pick another spool to merge" : "or click spools to see and merge them"}</span>
       ${threadSel.size ? `<button type="button" class="btn small ghost" id="spoolClear">Show all</button>` : ""}`;
     $("#simplify").onclick = () => simplifyThreads();
+    if ($("#joinRep")) $("#joinRep").onclick = () => {
+      beginEdit(); S.layout.force_group = [...new Set([...(S.layout.force_group || []), ...rep])]; commit(true);
+      threadSel.clear(); save_local(); scheduleBuild(0);
+      toast("Those colors now sew in one go. Check the preview: a piece that used to sit on top may now be covered. Undo puts it back.", "good");
+    };
     if ($("#spoolClear")) $("#spoolClear").onclick = () => { threadSel.clear(); renderChart(); draw(); };
   } else host.innerHTML = "";
 }
@@ -2589,6 +2597,31 @@ $("#unitsToggle").textContent = UNITS;
 $("#unitsToggle").onclick = () => setUnits(UNITS === "mm" ? "in" : "mm");
 $("#zoomFit").onclick = () => { S.zoom = 1; S.pan = { x: 0, y: 0 }; draw(); };
 cv.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); }); // no browser autoscroll
+// ---- drag the panel edges to resize them; remembered in this browser
+(function panelResizers() {
+  const root = document.documentElement, KEY = "thimble.panels";
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+  const set = (name, px) => { root.style.setProperty(name, px + "px"); };
+  for (const [k, v] of Object.entries(saved)) set(k, v);
+  const store = (k, v) => { saved[k] = v; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {} };
+  const reset = (k) => { root.style.removeProperty(k); delete saved[k]; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {} };
+  const wire = (id, name, lo, hi, calc) => {
+    const h = $(id);
+    h.ondblclick = () => reset(name);
+    h.onpointerdown = (e) => {
+      e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add("drag");
+      const move = (ev) => { const v = Math.round(clamp(calc(ev), lo, hi)); set(name, v); saved[name] = v; };
+      const up = () => { h.classList.remove("drag"); h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); store(name, saved[name]); };
+      h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
+    };
+  };
+  const ws = () => $(".workspace").getBoundingClientRect();
+  wire("#rzL", "--lw", 200, 560, (ev) => ev.clientX - ws().left - 14 - 7);
+  wire("#rzR", "--rw", 250, 680, (ev) => ws().right - ev.clientX - 14 - 7);
+  wire("#rzAL", "--ah", 90, 700, (ev) => ev.clientY - $(".panel.left > .swatch").getBoundingClientRect().top);
+  wire("#rzFO", "--fh", 90, 600, (ev) => $(".swatch.out").getBoundingClientRect().bottom - ev.clientY);
+  wire("#rzC", "--ch", 76, 420, (ev) => $(".chart").getBoundingClientRect().bottom - ev.clientY);
+})();
 new ResizeObserver(() => resize()).observe($("#hoopWrap")); // redraw whenever the hoop area changes size
 $("#showArt").onchange = draw;
 $("#showJumps").onchange = draw;

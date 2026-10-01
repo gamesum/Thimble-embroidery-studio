@@ -833,9 +833,11 @@ def _bbox(b):
     return (p.min(0) - 0.5, p.max(0) + 0.5) if len(p) else None
 
 
-def _group_by_colour(blocks):
+def _group_by_colour(blocks, force=()):
     """Fewer colour changes without breaking the layer order: a block may hop back next to an earlier block
-    of its colour only if nothing sewn in between (another colour) overlaps it - otherwise it would end up under it."""
+    of its colour only if nothing sewn in between (another colour) overlaps it - otherwise it would end up under it.
+    Colours in `force` (the user chose "sew all together") always hop back, overlap or not."""
+    force = {c.lower() for c in force}
     out, boxes = [], []
     for b in blocks:
         bb = _bbox(b)
@@ -847,7 +849,7 @@ def _group_by_colour(blocks):
                 pos = j + 1
                 break
             ob = boxes[j]
-            if bb is not None and ob is not None and not (bb[1][0] < ob[0][0] or ob[1][0] < bb[0][0] or bb[1][1] < ob[0][1] or ob[1][1] < bb[0][1]):
+            if col not in force and bb is not None and ob is not None and not (bb[1][0] < ob[0][0] or ob[1][0] < bb[0][0] or bb[1][1] < ob[0][1] or ob[1][1] < bb[0][1]):
                 break
         out.insert(pos, b)
         boxes.insert(pos, bb)
@@ -876,7 +878,7 @@ def build(layout, progress=None):
             all_blocks.append(dict(color=b["color"], objects=objs, kinds=b["kinds"], element=idx))
         boxes.append(dict(index=idx, id=el.get("id"), x=x0, y=y0, w=w, h=h, rotation=num(el.get("rotation"), 0)))
     if layout.get("group_colors", True):
-        all_blocks = _group_by_colour(all_blocks)
+        all_blocks = _group_by_colour(all_blocks, layout.get("force_group") or ())
     merged = []
     for b in all_blocks:
         if merged and merged[-1]["color"].lower() == b["color"].lower():

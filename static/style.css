@@ -88,7 +88,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .btn.sew svg { fill: currentColor; stroke: none; }
 
 /* ---------- layout ---------- */
-.workspace { flex: 1; display: grid; grid-template-columns: 270px 1fr 330px; gap: 14px; padding: 14px; min-height: 0; }
+.workspace { flex: 1; display: grid; grid-template-columns: var(--lw, 270px) 1fr var(--rw, 330px); gap: 14px; padding: 14px; min-height: 0; position: relative; }
 .panel { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .swatch {
   background: var(--paper); border-radius: var(--radius); padding: 16px 16px 14px; box-shadow: var(--shadow);
@@ -164,7 +164,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 #sewInfo { font-size: 12px; color: var(--ink-2); min-width: 150px; }
 
 /* ---------- thread chart ---------- */
-.chart { background: var(--paper); border-radius: var(--radius); padding: 10px 16px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 22px; min-height: 76px; position: relative; }
+.chart { background: var(--paper); border-radius: var(--radius); padding: 10px 16px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 22px; min-height: 76px; height: var(--ch, auto); position: relative; }
 .chart::before { content: ""; position: absolute; inset: 5px; border: 1.5px dashed var(--stitch); border-radius: 10px; pointer-events: none; }
 .stats { display: grid; grid-template-columns: repeat(2, auto); gap: 0 14px; font-size: 13px; color: var(--ink-2); flex: none; }
 .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -277,7 +277,7 @@ dialog hr { border: 0; border-top: 1px dashed var(--stitch); margin: 14px 0; }
 .toast .pin { width: 10px; height: 10px; border-radius: 50%; background: var(--brass); margin-top: 5px; flex: none; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 
-@media (max-width: 1200px) { .workspace { grid-template-columns: 230px 1fr 290px; } .notes { display: none; } }
+@media (max-width: 1200px) { .workspace { grid-template-columns: var(--lw, 230px) 1fr var(--rw, 290px); } .notes { display: none; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -435,3 +435,22 @@ section.swatch.grow.folded { flex: none; }
 .load-note { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 40; max-width: min(560px, 90vw); text-align: center;
   background: #fff6c9; color: #6b5510; border: 1px solid #d9c46a; border-radius: 6px; padding: 8px 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); font-size: 14px; }
 .load-note[hidden] { display: none; }
+
+/* drag the edges between the panels to resize them (double-click puts one back) */
+.resizer { position: absolute; z-index: 30; touch-action: none; }
+.resizer::after { content: ""; position: absolute; border-radius: 3px; background: transparent; transition: background .15s; }
+.resizer:hover::after, .resizer.drag::after { background: rgba(176, 138, 92, .55); }
+.resizer.col { top: 14px; bottom: 14px; width: 14px; cursor: col-resize; }
+.resizer.col::after { left: 5px; right: 5px; top: 0; bottom: 0; }
+.resizer.row { left: 16px; right: 16px; top: -10px; height: 12px; cursor: row-resize; }
+.resizer.row::after { top: 4px; height: 4px; left: 0; right: 0; }
+#rzL { left: calc(14px + var(--lw, 270px)); }
+#rzR { right: calc(14px + var(--rw, 330px)); }
+@media (max-width: 1200px) { #rzL { left: calc(14px + var(--lw, 230px)); } #rzR { right: calc(14px + var(--rw, 290px)); } }
+
+/* between stacked panels: sits in the gap, takes no space of its own */
+.resizer.hrow { position: relative; height: 0; margin-top: -14px; flex: none; cursor: row-resize; left: 0; right: 0; top: 0; z-index: 30; }
+.resizer.hrow::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 14px; }
+.resizer.hrow::after { left: 12px; right: 12px; top: 5px; height: 4px; }
+.panel.left > .swatch:first-of-type { height: var(--ah, auto); overflow: auto; flex: none; }
+.swatch.out { height: var(--fh, auto); overflow: auto; flex: none; }

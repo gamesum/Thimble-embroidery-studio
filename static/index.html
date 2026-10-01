@@ -83,12 +83,16 @@
           <button type="button" class="btn small ghost" id="aiRedo" title="Read the same picture again in the other mode">Redo as exact copy</button></div>
       </div>
     </section>
+    <div class="resizer hrow" id="rzAL" title="Drag to resize (double-click to reset)"></div>
     <section class="swatch grow">
       <h2>Layers <small>top of list sews first</small></h2>
       <ol id="layerList" class="layers"></ol>
       <p class="empty-note" id="layersEmpty">Nothing in the hoop yet.</p>
     </section>
   </aside>
+
+  <div class="resizer col" id="rzL" title="Drag to resize (double-click to reset)"></div>
+  <div class="resizer col" id="rzR" title="Drag to resize (double-click to reset)"></div>
 
   <!-- center: hoop -->
   <section class="stage">
@@ -119,6 +123,7 @@
         <span class="busy-track"><span id="busyBar"></span></span><button type="button" class="btn small ghost busy-cancel" id="busyCancel" hidden>Cancel</button></span></div>
     </div>
     <footer class="chart">
+      <div class="resizer row" id="rzC" title="Drag to resize (double-click to reset)"></div>
       <div class="stats" id="stats"></div>
       <div class="spools-wrap"><div class="spool-tools" id="spoolTools"></div><div class="spools" id="spools"></div></div>
       <div class="notes" id="notes"></div>
@@ -128,6 +133,7 @@
   <!-- right: properties + output -->
   <aside class="panel right">
     <section class="swatch grow" id="props"></section>
+    <div class="resizer hrow" id="rzFO" title="Drag to resize (double-click to reset)"></div>
     <section class="swatch out">
       <h2>Finish</h2>
       <button class="btn primary big" id="btnDisk">
