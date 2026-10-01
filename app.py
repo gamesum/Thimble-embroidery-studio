@@ -87,6 +87,11 @@ def on_value_error(e):
 
 @app.errorhandler(Exception)
 def on_error(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):  # "not found" etc. are answers, not crashes
+        if request.path.startswith("/api/"):
+            return jsonify(error=e.description or e.name), e.code
+        return e
     traceback.print_exc()
     try:  # keep the details for troubleshooting (the console window is easy to lose)
         with open(os.path.join(OUT, "error.log"), "a", encoding="utf-8") as fh:
