@@ -328,6 +328,62 @@ def threads_for(brand):
     return resp
 
 
+@app.post("/api/feedback")
+def feedback():
+    """Bug reports and feature requests: appended to output/feedback.jsonl and printed (the website's log keeps it)."""
+    j = request.get_json(force=True, silent=True) or {}
+    msg = str(j.get("message") or "").strip()[:4000]
+    if not msg:
+        return jsonify(error="Please write a few words first."), 400
+    rec = dict(time=time.strftime("%Y-%m-%d %H:%M:%S"), kind="bug" if j.get("kind") == "bug" else "idea", message=msg,
+               contact=str(j.get("contact") or "")[:200], page=str(j.get("page") or "")[:300],
+               agent=str(j.get("agent") or "")[:300], hosted=HOSTED)
+    d = j.get("design")
+    if d is not None:
+        txt = json.dumps(d)
+        rec["design"] = d if len(txt) < 200000 else "(too large to attach)"
+    line = json.dumps(rec, ensure_ascii=False)
+    try:
+        os.makedirs(OUT, exist_ok=True)
+        with open(os.path.join(OUT, "feedback.jsonl"), "a", encoding="utf8") as f:
+            f.write(line + chr(10))
+    except Exception:
+        pass
+    print("FEEDBACK " + line, flush=True)
+    threading.Thread(target=_mail_feedback, args=(rec,), daemon=True).start()
+    return jsonify(ok=True)
+
+
+def _mail_feedback(rec):
+    """Email the report to the owner. Needs a Gmail address + app password: THIMBLE_MAIL_USER / THIMBLE_MAIL_PASS /
+    THIMBLE_MAIL_TO environment variables (the website) or mail_user / mail_pass / mail_to in config.json (this computer)."""
+    c = config()
+    user = os.environ.get("THIMBLE_MAIL_USER") or c.get("mail_user")
+    pw = os.environ.get("THIMBLE_MAIL_PASS") or c.get("mail_pass")
+    to = os.environ.get("THIMBLE_MAIL_TO") or c.get("mail_to") or user
+    if not (user and pw and to):
+        return
+    try:
+        import smtplib
+        from email.message import EmailMessage
+        nl = chr(10)
+        m = EmailMessage()
+        m["Subject"] = "Thimble %s: %s" % ("bug report" if rec["kind"] == "bug" else "feature request", rec["message"][:60].replace(nl, " "))
+        m["From"], m["To"] = user, to
+        if rec.get("contact"):
+            m["Reply-To"] = rec["contact"]
+        body = [rec["message"], "", "---", "From: %s" % (rec.get("contact") or "(no email given)"), "When: %s" % rec["time"],
+                "Where: %s" % rec.get("page"), "Browser: %s" % rec.get("agent"), "On the website: %s" % rec.get("hosted")]
+        m.set_content(nl.join(body))
+        if isinstance(rec.get("design"), dict):
+            m.add_attachment(json.dumps(rec["design"], indent=1).encode("utf8"), maintype="application", subtype="json", filename="design.json")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as srv:
+            srv.login(user, pw)
+            srv.send_message(m)
+    except Exception as e:
+        print("FEEDBACK mail failed: %s" % e, flush=True)
+
+
 @app.get("/api/legal")
 def legal():
     """Every embroidery font with its author's license (for the About & licenses page)."""

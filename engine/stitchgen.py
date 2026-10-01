@@ -1151,22 +1151,34 @@ def satin_rows(poly, P, angle=None, start=None, max_len=12.0):
         short = e1 if math.hypot(*e1) < math.hypot(*e2) else e2
         angle = math.degrees(math.atan2(short[1], short[0]))
     poly = poly.buffer(P.pull_comp * 0.8, join_style=1)
-    # rotate so the stitches lie along x; rows step along y
     cx, cy = poly.centroid.x, poly.centroid.y
-    rp = affinity.rotate(poly, -angle, origin=(cx, cy))
-    x0, y0, x1, y1 = rp.bounds
     step = P.satin_spacing / 2
-    rows = []
-    y = y0 + step / 2
-    while y < y1:
-        seg = rp.intersection(LineString([(x0 - 1, y), (x1 + 1, y)]))
-        parts = [g for g in getattr(seg, "geoms", [seg]) if not g.is_empty and g.length > 0.05]
-        if len(parts) > 1:
-            return satin_fill(poly.buffer(-P.pull_comp * 0.8), P, angle=angle, start=start)
-        if parts:
-            xs = [p[0] for p in parts[0].coords]
-            rows.append((min(xs), max(xs), y))
-        y += step
+
+    def attempt(ang):
+        rp = affinity.rotate(poly, -ang, origin=(cx, cy))
+        x0, y0, x1, y1 = rp.bounds
+        rows, y = [], y0 + step / 2
+        while y < y1:
+            seg = rp.intersection(LineString([(x0 - 1, y), (x1 + 1, y)]))
+            parts = [g for g in getattr(seg, "geoms", [seg]) if not g.is_empty and g.length > 0.05]
+            if len(parts) > 1:
+                return None
+            if parts:
+                xs = [p[0] for p in parts[0].coords]
+                rows.append((min(xs), max(xs), y))
+            y += step
+        return rows
+
+    # a shape with a notch (heart) can't be crossed in one piece at some angles: look for one that can
+    rows = None
+    for k in [0, 90, 45, -45, 22, -22, 67, -67, 12, -12, 30, -30, 60, -60, 75, -75]:
+        rows = attempt(angle + k)
+        if rows is not None:
+            angle += k
+            break
+    if rows is None:
+        return satin_fill(poly.buffer(-P.pull_comp * 0.8), P, angle=angle, start=start)
+    rp = affinity.rotate(poly, -angle, origin=(cx, cy))
     if not rows:
         return []
     pts = []

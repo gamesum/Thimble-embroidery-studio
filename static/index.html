@@ -44,6 +44,7 @@
     <input type="file" id="openInput" accept=".thimble,.json,image/*,.heic,.heif,.svg,.100,.10o,.bro,.dat,.dsb,.dst,.dsz,.emd,.exp,.exy,.fxy,.gt,.hus,.inb,.jef,.jpx,.ksm,.max,.mit,.new,.pcd,.pcm,.pcq,.pcs,.pec,.pes,.phb,.phc,.sew,.shv,.spx,.stc,.stx,.tap,.tbf,.u01,.vp3,.xxx,.zhs,.zxy" hidden>
     <span class="sep"></span>
     <button class="btn ghost" id="btnHowTo" title="A quick tour of Thimble">How to</button>
+    <button class="btn ghost" id="btnFeedback" title="Report a problem or ask for a feature">Feedback</button>
     <button class="btn ghost" id="btnSettings" title="Settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       Settings</button>
@@ -235,6 +236,18 @@
     <div class="how-dots" id="howDots"></div>
     <menu><button type="button" class="btn ghost" id="howBack">Back</button><span style="flex:1"></span>
       <button type="button" class="btn ghost" id="howSkip">Skip</button><button type="button" class="btn primary" id="howNext">Next</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlgFeedback" class="sheet">
+  <form method="dialog" id="fbForm">
+    <h2>Tell us what you think</h2>
+    <div class="field"><div class="chips" id="fbKind"><button type="button" class="chip on" data-k="bug">Something is wrong</button><button type="button" class="chip" data-k="idea">I'd like a feature</button></div></div>
+    <div class="field"><label for="fbMsg" id="fbMsgLbl">What went wrong? What did you expect?</label>
+      <textarea id="fbMsg" rows="5" maxlength="4000" placeholder="e.g. when I resize the heart the stitches look patchy"></textarea></div>
+    <div class="field"><label for="fbContact">Your email (optional, only if you want an answer)</label><input type="text" id="fbContact" maxlength="200"></div>
+    <label class="radio"><input type="checkbox" id="fbDesign" checked> Include my current design's settings (no pictures) so you can see what I see</label>
+    <menu><button value="cancel" class="btn ghost">Cancel</button><button type="button" class="btn primary" id="fbSend">Send</button></menu>
   </form>
 </dialog>
 

@@ -2376,6 +2376,26 @@ async function saveSettings() {
   $("#dlgSettings").close();
   renderProps(); scheduleBuild(0); save_local();
 }
+// ---- feedback: bug reports and feature requests
+let fbKind = "bug";
+$("#btnFeedback").onclick = () => { $("#dlgFeedback").showModal(); $("#fbMsg").focus(); };
+$$("#fbKind .chip").forEach((b) => (b.onclick = () => {
+  fbKind = b.dataset.k;
+  $$("#fbKind .chip").forEach((c) => c.classList.toggle("on", c === b));
+  $("#fbMsgLbl").textContent = fbKind === "bug" ? "What went wrong? What did you expect?" : "What would you like Thimble to do?";
+}));
+$("#fbSend").onclick = async () => {
+  const message = $("#fbMsg").value.trim();
+  if (!message) { toast("Write a few words first."); return; }
+  const body = { kind: fbKind, message, contact: $("#fbContact").value.trim(), page: location.href, agent: navigator.userAgent };
+  if ($("#fbDesign").checked) {
+    const l = JSON.parse(JSON.stringify(S.layout));
+    (l.elements || []).forEach((e) => { if (e.blocks) e.blocks = "(stitch data left out)"; });
+    body.design = l;
+  }
+  try { await api("/api/feedback", body); $("#dlgFeedback").close(); $("#fbMsg").value = ""; toast("Thank you! Your note was sent.", "good"); }
+  catch (e) { toast("Couldn't send that - " + (e.message || "try again"), "bad"); }
+};
 $("#openLegal").onclick = async () => {
   $("#dlgLegal").showModal();
   try {
