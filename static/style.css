@@ -391,3 +391,5 @@ details.sec > summary:hover .t { color: var(--walnut); }
 .ai-card .safe { font-size: 13px; color: var(--ink-3); margin: 8px 0 0; }
 /* the floating toolbar stays readable over any fabric */
 .stage-tools .toggle { background: rgba(251, 248, 242, .95); padding: 6px 12px; border-radius: 12px; box-shadow: 0 2px 8px rgba(60, 35, 15, .12); }
+
+.layer .grp { color: var(--walnut); font-size: 12px; }

@@ -482,8 +482,53 @@ function removeElement(i) {
 }
 function duplicate(i) {
   const c = JSON.parse(JSON.stringify(S.layout.elements[i]));
-  c.x += 4; c.y += 4; delete c.id;
+  c.x += 4; c.y += 4; delete c.id; delete c.group;
   addElement(c);
+}
+// ---- groups: pieces that select, move, resize, turn and delete together
+function groupMates(el) {
+  return el && el.group ? S.layout.elements.filter((x) => x.group === el.group && !x.hidden) : el ? [el] : [];
+}
+function selectGroupOf(i) {
+  const el = S.layout.elements[i];
+  clearMulti();
+  for (const x of groupMates(el)) multi.add(x.id);
+  if (multi.size <= 1) multi.clear();
+  S.sel = i;
+}
+function groupSelected() {
+  const idx = selected();
+  if (idx.length < 2) return;
+  beginEdit();
+  const g = "g" + uid();
+  for (const i of idx) S.layout.elements[i].group = g;
+  commit(true); save_local(); renderLayers(); renderProps();
+  toast(`Grouped ${idx.length} pieces. Click any of them to pick up the whole group; Alt+click picks just one.`, "good");
+}
+function ungroupSelected() {
+  const idx = multi.size > 1 ? selected() : S.sel >= 0 ? S.layout.elements.filter((x) => x.group && x.group === S.layout.elements[S.sel].group).map((x) => S.layout.elements.indexOf(x)) : [];
+  if (!idx.some((i) => S.layout.elements[i].group)) return;
+  beginEdit();
+  for (const i of idx) delete S.layout.elements[i].group;
+  commit(true); save_local(); renderLayers(); renderProps();
+  toast("Ungrouped - each piece moves on its own again.", "good");
+}
+function duplicateSelected() {
+  // copy the whole selection; copies of a group become a new group of their own
+  const idx = selected();
+  if (!idx.length) return;
+  commit(true); beginEdit();
+  const newGroups = {}, copies = [];
+  for (const i of idx) {
+    const c = JSON.parse(JSON.stringify(S.layout.elements[i]));
+    c.x += 4; c.y += 4; c.id = uid();
+    if (c.group) c.group = newGroups[c.group] || (newGroups[c.group] = "g" + uid());
+    copies.push(c);
+  }
+  S.layout.elements.push(...copies);
+  commit(true);
+  clearMulti(); copies.forEach((c) => multi.add(c.id)); S.sel = S.layout.elements.length - 1;
+  renderLayers(); renderProps(); scheduleBuild(0); save_local();
 }
 function moveLayer(i, d) {
   const j = i + d, els = S.layout.elements;
@@ -524,7 +569,7 @@ function renderLayers() {
     const li = document.createElement("li");
     li.className = "layer" + (i === S.sel || multi.has(el.id) ? " sel" : "") + (el.hidden ? " hidden" : "");
     li.innerHTML = `<span class="dot" style="background:${esc(elColor(el))}"></span>
-      <span class="name">${esc(elLabel(el))}</span><span class="kind">${el.type === "image" ? "pic" : el.type === "vector" ? "drawing" : el.type === "stitches" ? "stitch file" : el.type}</span>
+      <span class="name">${el.group ? `<span class="grp" title="In a group">⛓</span> ` : ""}${esc(elLabel(el))}</span><span class="kind">${el.type === "image" ? "pic" : el.type === "vector" ? "drawing" : el.type === "stitches" ? "stitch file" : el.type}</span>
       <span class="icons">
         <button data-a="up" title="Sew earlier" aria-label="Move up">${ICON.up}</button>
         <button data-a="down" title="Sew later" aria-label="Move down">${ICON.down}</button>
@@ -661,10 +706,16 @@ function renderProps() {
   if (multi.size > 1) {
     const idx = selected();
     box.innerHTML = `<h2>${idx.length} pieces selected</h2>
-      <p class="hint">Drag any of them to move them together. Arrow keys nudge. Shift+click adds or removes a piece.</p>
+      <p class="hint">Drag any of them to move them together; drag the box's corners to resize, the top knob to turn. Arrow keys nudge. Shift+click adds or removes a piece. Group them to keep them together.</p>
       <div class="align-grid" style="margin:10px 0">
         <button class="chip" data-gplace="cx">Center across</button><button class="chip" data-gplace="cy">Center down</button>
         <button class="chip" data-gplace="both">Center in hoop</button></div>
+      <div class="row" style="gap:6px;margin-bottom:8px">${(() => {
+        const gs = new Set(idx.map((i) => S.layout.elements[i].group || ""));
+        const one = gs.size === 1 && !gs.has("");
+        return (one ? "" : `<button class="btn small primary" id="g-group" title="Ctrl+G">Group</button>`) +
+          ([...gs].some(Boolean) ? `<button class="btn small" id="g-ungroup" title="Ctrl+Shift+G">Ungroup</button>` : "");
+      })()}<button class="btn small" id="g-dup" title="Ctrl+D">Duplicate</button></div>
       <div class="row" style="gap:6px"><button class="btn small" id="g-del">Delete ${idx.length} pieces</button>
         <button class="btn small ghost" id="g-clear">Clear selection</button></div>
       <ul class="multi-list">${idx.map((i) => `<li><span class="dot" style="background:${elColor(S.layout.elements[i])}"></span>${esc(elLabel(S.layout.elements[i]))}</li>`).join("")}</ul>`;
@@ -675,6 +726,9 @@ function renderProps() {
       draw(); save_local(); scheduleBuild(300);
     }));
     $("#g-del").onclick = removeSelected;
+    if ($("#g-group")) $("#g-group").onclick = groupSelected;
+    if ($("#g-ungroup")) $("#g-ungroup").onclick = ungroupSelected;
+    $("#g-dup").onclick = duplicateSelected;
     $("#g-clear").onclick = () => { clearMulti(); S.sel = -1; renderLayers(); renderProps(); draw(); };
     return;
   }
@@ -1571,7 +1625,23 @@ cv.addEventListener("pointerdown", (e) => {
     return;
   }
   const i = hitElement(mx, my);
-  if (i >= 0 && e.shiftKey) { toggleInSelection(i); return; }
+  if (i >= 0 && e.shiftKey) {
+    const mates = groupMates(S.layout.elements[i]);
+    if (mates.length > 1) {
+      // shift+click on a group adds / removes the whole group
+      const on = multi.has(mates[0].id);
+      if (!multi.size && S.sel >= 0) multi.add(S.layout.elements[S.sel].id);
+      for (const x of mates) on ? multi.delete(x.id) : multi.add(x.id);
+      if (multi.size === 1) { S.sel = S.layout.elements.findIndex((x) => multi.has(x.id)); multi.clear(); }
+      else if (!on) S.sel = i;
+      renderLayers(); renderProps(); draw();
+      return;
+    }
+    toggleInSelection(i); return;
+  }
+  if (i >= 0 && !e.altKey && S.layout.elements[i].group && !multi.has(S.layout.elements[i].id)) {
+    selectGroupOf(i); renderLayers(); renderProps();
+  }
   if (i >= 0 && multi.size > 1 && multi.has(S.layout.elements[i].id)) {
     // drag any of the selected items: they all move together
     beginEdit();
@@ -1752,6 +1822,7 @@ cv.addEventListener("pointerup", () => {
         const b = groupBox([i]);
         if (b && b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) { multi.add(el.id); S.sel = i; }
       });
+      for (const el of [...S.layout.elements]) if (multi.has(el.id)) groupMates(el).forEach((x) => multi.add(x.id));
       if (multi.size === 1) { const only = selected()[0]; multi.clear(); S.sel = only; }
     }
     renderLayers(); renderProps(); draw();
@@ -2205,6 +2276,10 @@ document.addEventListener("keydown", (e) => {
     if (multi.size <= 1) clearMulti();
     renderLayers(); renderProps(); draw(); return;
   }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
+    e.preventDefault(); e.shiftKey ? ungroupSelected() : groupSelected(); return;
+  }
+  if (multi.size > 1 && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSelected(); return; }
   if (multi.size > 1) {
     if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSelected(); }
     else if (e.key === "Escape") { clearMulti(); S.sel = -1; renderLayers(); renderProps(); draw(); }
