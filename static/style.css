@@ -423,3 +423,10 @@ section.swatch.grow.folded { flex: none; }
 .notes { max-height: 120px; overflow-y: auto; }
 .note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note.open { white-space: normal; }
+
+/* drag to reorder layers */
+.layers li { position: relative; }
+.layers li.dragging { opacity: .45; }
+.layers li.drop-above::after, .layers li.drop-below::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; background: #c43c2d; border-radius: 2px; pointer-events: none; }
+.layers li.drop-above::after { top: -2px; }
+.layers li.drop-below::after { bottom: -2px; }

@@ -628,30 +628,61 @@ function renderLayers() {
   const ol = $("#layerList");
   ol.innerHTML = "";
   $("#layersEmpty").hidden = S.layout.elements.length > 0;
-  S.layout.elements.forEach((el, i) => {
+  // top of the list = in front (sewn last, on top); bottom = at the back (sewn first)
+  for (let i = S.layout.elements.length - 1; i >= 0; i--) {
+    const el = S.layout.elements[i];
     const li = document.createElement("li");
     li.className = "layer" + (i === S.sel || multi.has(el.id) ? " sel" : "") + (el.hidden ? " hidden" : "");
     li.innerHTML = `<span class="dot" style="background:${esc(elColor(el))}"></span>
       <span class="name">${el.group ? `<span class="grp" title="In a group">⛓</span> ` : ""}${esc(elLabel(el))}</span><span class="kind">${el.type === "image" ? "pic" : el.type === "vector" ? "drawing" : el.type === "stitches" ? "stitch file" : el.type}</span>
       <span class="icons">
-        <button data-a="up" title="Sew earlier" aria-label="Move up">${ICON.up}</button>
-        <button data-a="down" title="Sew later" aria-label="Move down">${ICON.down}</button>
+        <button data-a="up" title="Bring forward (sewn later, on top)" aria-label="Move up">${ICON.up}</button>
+        <button data-a="down" title="Send backward (sewn earlier, underneath)" aria-label="Move down">${ICON.down}</button>
         <button data-a="hide" title="${el.hidden ? "Show" : "Hide"}" aria-label="Toggle visibility">${el.hidden ? ICON.eyeoff : ICON.eye}</button>
         <button data-a="dup" title="Duplicate (Ctrl+D)" aria-label="Duplicate">${ICON.copy}</button>
         <button data-a="del" title="Remove (Delete)" aria-label="Remove">${ICON.trash}</button>
       </span>`;
     li.onclick = (e) => {
       const a = e.target.closest("button")?.dataset.a;
-      if (a === "up") moveLayer(i, -1);
-      else if (a === "down") moveLayer(i, 1);
+      if (a === "up") moveLayer(i, 1);
+      else if (a === "down") moveLayer(i, -1);
       else if (a === "del") removeElement(i);
       else if (a === "dup") duplicate(i);
       else if (a === "hide") { commit(true); beginEdit(); el.hidden = !el.hidden; commit(true); renderLayers(); scheduleBuild(0); save_local(); }
       else if (e.shiftKey) { endSew(); toggleInSelection(i); }
       else { endSew(); clearMulti(); S.sel = i; renderLayers(); renderProps(); draw(); }
     };
+    li.draggable = true;
+    li.ondragstart = (e) => { dragLayer = i; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); li.classList.add("dragging"); };
+    li.ondragend = () => { dragLayer = null; $$("#layerList li").forEach((n) => n.classList.remove("dragging", "drop-above", "drop-below")); };
+    li.ondragover = (e) => {
+      if (dragLayer === null) return;
+      e.preventDefault();
+      const above = e.offsetY < li.offsetHeight / 2;
+      li.classList.toggle("drop-above", above); li.classList.toggle("drop-below", !above);
+    };
+    li.ondragleave = () => li.classList.remove("drop-above", "drop-below");
+    li.ondrop = (e) => {
+      e.preventDefault();
+      const from = dragLayer, above = e.offsetY < li.offsetHeight / 2;
+      dragLayer = null;
+      if (from !== null) reorderLayer(from, above ? i + 1 : i);   // shown front-to-back, so "above" = a later index
+    };
     ol.appendChild(li);
-  });
+  }
+}
+let dragLayer = null;
+// move element `from` to array slot `slot` (0..length, before the removal)
+function reorderLayer(from, slot) {
+  const els = S.layout.elements;
+  const to = slot > from ? slot - 1 : slot;
+  if (to === from) return;
+  commit(true); beginEdit();
+  const selId = els[S.sel]?.id;
+  const [el] = els.splice(from, 1);
+  els.splice(to, 0, el);
+  if (selId) S.sel = els.findIndex((e) => e.id === selId);
+  commit(true); renderLayers(); scheduleBuild(0); save_local();
 }
 
 // ------------------------------------------------------------------ properties panel
@@ -771,7 +802,7 @@ function wireLetterColors(el) {
 function outlineFields(el) {
   const ol = el.outline || null;
   return `<div class="field border-card"><label class="radio"><input type="checkbox" id="p-ol"${ol ? " checked" : ""}> <b>Satin border</b></label><span class="muted small">An outline in a second thread</span></div>
-    <div id="p-ol-box"${ol ? "" : " hidden"}>${selectField("p-olfirst", "Sew it", [["first", "First, under the letters (nothing to snip)"], ["last", "Last, on top (snip jump threads)"], ["only", "Edge only - sew over letters already stitched"]], ol?.only ? "only" : ol && !ol.first ? "last" : "first")}${rangeField("p-olw", "Border width (mm)", 0.6, 5, 0.1, ol ? ol.width_mm : 1, "len")}
+    <div id="p-ol-box"${ol ? "" : " hidden"}>${selectField("p-olfirst", "Sew it", [["first", "First, under the letters (nothing to snip)"], ["last", "Last, on top (snip jump threads)"], ["patch", "Patch look - border floats off the letters, fabric showing between"], ["only", "Edge only - sew over letters already stitched"]], ol?.only ? "only" : ol && (ol.gap_mm || 0) > 0.2 ? "patch" : ol && !ol.first ? "last" : "first")}${(ol?.gap_mm || 0) > 0.2 ? rangeField("p-olgap", "Gap to the letters (mm)", 0.3, 4, 0.1, ol.gap_mm, "len") : ""}${rangeField("p-olw", "Border width (mm)", 0.6, 5, 0.1, ol ? ol.width_mm : 1, "len")}
     <label class="radio"><input type="checkbox" id="p-olmatch"${ol?.match ? " checked" : ""}> Same thread as each letter</label>
     <div id="p-olc-box"${ol?.match ? " hidden" : ""}>${threadField("p-olc", "Border thread", ol ? ol.color : "#3a2c22")}</div>
     ${ol?.only ? `<p class="hint">Only the satin edge is sewn. Leave the fabric in the hoop (or re-hoop it exactly) and keep the piece where it was - the machine puts the design at the hoop center, so it lands on the old stitching.</p>` : ""}</div>`;
@@ -1040,13 +1071,14 @@ function wireProps(el) {
   if (ol) {
     ol.onchange = () => {
       const how = $("#p-olfirst").value;
-      beginEdit(); el.outline = ol.checked ? { color: $("#p-olc").value || "#3a2c22", width_mm: Math.round(U.toMm(parseFloat($("#p-olw").value)) * 100) / 100 || 1, first: how === "first", only: how === "only", match: $("#p-olmatch").checked } : null; commit();
+      beginEdit(); el.outline = ol.checked ? { color: $("#p-olc").value || "#3a2c22", width_mm: Math.round(U.toMm(parseFloat($("#p-olw").value)) * 100) / 100 || 1, first: how === "first", only: how === "only", match: $("#p-olmatch").checked, ...(how === "patch" ? { gap_mm: 0.8 } : {}) } : null; commit();
       $("#p-ol-box").hidden = !ol.checked; scheduleBuild(); save_local();
     };
     $("#p-olfirst").onchange = () => {
       if (!el.outline) return;
       const how = $("#p-olfirst").value;
       beginEdit(); el.outline.first = how === "first"; el.outline.only = how === "only";
+      if (how === "patch") el.outline.gap_mm = el.outline.gap_mm > 0.2 ? el.outline.gap_mm : 0.8; else delete el.outline.gap_mm;
       if (how === "only" && el.outline.width_mm < 2.5) el.outline.width_mm = 3;  // wide enough to hide the fill's edge
       commit(); scheduleBuild(); save_local(); renderProps();
     };
@@ -1058,6 +1090,11 @@ function wireProps(el) {
     const w = $("#p-olw"), wn = $("#p-olw-n");
     const setw = (v) => { w.value = v; wn.value = v; if (el.outline) { beginEdit(); el.outline.width_mm = Math.round(U.toMm(parseFloat(v)) * 100) / 100; commit(); scheduleBuild(); save_local(); } };
     w.oninput = () => setw(w.value); wn.onchange = () => setw(wn.value);
+    const gp = $("#p-olgap"), gpn = $("#p-olgap-n");
+    if (gp) {
+      const setg = (v) => { gp.value = v; gpn.value = v; if (el.outline) { beginEdit(); el.outline.gap_mm = Math.round(U.toMm(parseFloat(v)) * 100) / 100; commit(); scheduleBuild(); save_local(); } };
+      gp.oninput = () => setg(gp.value); gpn.onchange = () => setg(gpn.value);
+    }
     wireThread("p-olc", () => el.outline?.color, (hex) => { if (el.outline) { beginEdit(); el.outline.color = hex; commit(); scheduleBuild(); save_local(); } });
   }
   $$(".chip[data-kind]").forEach((b) => (b.onclick = () => { setProp(el, "kind", b.dataset.kind); renderProps(); renderLayers(); }));
@@ -1239,8 +1276,9 @@ function renderChart() {
   $("#stats").innerHTML = `<span>Stitches</span><b>${fmt(st.stitches)}</b><span>Size</span><b>${U.show(st.size[0])} × ${U.show(st.size[1])} ${U.u}</b>
     <span>Sewing time</span><b>≈ ${Math.max(1, Math.round(st.minutes))} min</b>
     <span>Thread</span><b title="Top thread; bobbin ≈ ${U.thread(st.bobbin_m || 0)}">≈ ${U.thread(st.thread_m || 0)} <small class="muted">+ ${U.thread(st.bobbin_m || 0)} bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
-  $("#spools").innerHTML = st.colors.map((c, i) => `<div class="spool${threadSel.has(c.hex.toLowerCase()) ? " on" : ""}" data-hex="${c.hex.toLowerCase()}" title="Click to pick for merging · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
-    <div class="t"><b>${i + 1}. ${esc(threadBrand === MACHINE_BRAND ? c.thread : threadBrand.replace(/ (Rayon|Polyester|Embroidery)$/, "") + " " + threadName(c.hex).replace(/^≈ /, "≈ "))}</b><span class="n">${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`).join("") ||
+  const seenAt = {};
+  $("#spools").innerHTML = st.colors.map((c, i) => { const hx = c.hex.toLowerCase(), prior = seenAt[hx]; seenAt[hx] = prior || i + 1; return `<div class="spool${threadSel.has(hx) ? " on" : ""}" data-hex="${hx}" title="${prior ? `Same thread as spool ${prior}, sewn again because a piece sewn in between overlaps it. To sew it in one go, put these pieces next to each other in the Layers list.` : "Click to pick for merging"} · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
+    <div class="t"><b>${i + 1}. ${esc(threadBrand === MACHINE_BRAND ? c.thread : threadBrand.replace(/ (Rayon|Polyester|Embroidery)$/, "") + " " + threadName(c.hex).replace(/^≈ /, "≈ "))}</b><span class="n">${prior ? `again (same as ${prior}) · ` : ""}${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`; }).join("") ||
     `<span class="muted" style="font-family:Hand,cursive;font-size:18px">Thread chart appears here.</span>`;
   const live = new Set(st.colors.map((c) => c.hex.toLowerCase()));
   threadSel = new Set([...threadSel].filter((h) => live.has(h)));

@@ -619,7 +619,7 @@ def _with_outline(el, m, style, layers=None):
     w = float(ol.get("width_mm") or 0)
     if w <= 0:
         return layers
-    pad = int(round((w + 1.5) * RES)) + 2
+    pad = int(round((w + max(0.0, num(ol.get("gap_mm"), 0)) + 1.5) * RES)) + 2
     main = [(c, lm, (pad, pad), st) for c, lm, _, st in layers]
     only = bool(ol.get("only"))  # just the edge, sewn over stitching that's already on the fabric
     first = bool(ol.get("first")) and not only
@@ -791,7 +791,7 @@ def _emb_text_blocks(el, fam, P):
         gap = -bw / 2 if only else num(ol.get("gap_mm"), -0.3)
         if only:
             blocks = []
-        m, (x0, y0) = embfont.outline_mask(shapes, bw + 1.5, RES)
+        m, (x0, y0) = embfont.outline_mask(shapes, bw + max(0.0, num(ol.get("gap_mm"), 0)) + 1.5, RES)
         # close the counters between letters so the border hugs the word, like the TTF path does
         first = bool(ol.get("first")) and not only
         if first:
