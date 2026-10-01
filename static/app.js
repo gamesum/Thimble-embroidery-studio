@@ -213,6 +213,7 @@ function loadExample(key) {
 // ------------------------------------------------------------------ elements
 const SHAPES = [["heart", "Heart"], ["star", "Star"], ["circle", "Circle"], ["ring", "Ring"], ["rect", "Block"],
   ["frame", "Frame"], ["double_frame", "Double frame"], ["offset_frame", "Offset frame"], ["line", "Line"]];
+const TEXT_STYLES = [["auto", "Auto - satin, or fill on big bold letters"], ["satin", "Satin sweeps - long glossy stitches across every stroke"], ["fill", "Fill - rows of short stitches"]];
 const STYLES = [["auto", "Auto (recommended)"], ["satin", "Satin — follows the strokes"], ["satinfill", "Satin — one direction"],
   ["fill", "Fill — tatami"], ["run", "Outline — running stitch"]];
 
@@ -654,7 +655,9 @@ function renderProps() {
           field("Align lines", `<div class="seg3">${[["left", "Left"], ["center", "Center"], ["right", "Right"]].map(([v, t]) =>
             `<button class="chip${(el.align || "center") === v ? " on" : ""}" data-align="${v}">${t}</button>`).join("")}</div>`) : "")) +
       section("color", "Thread &amp; colors", `<span class="dot" style="background:${el.color}"></span>${esc(threadName(el.color))}${(el.letter_colors || []).some(Boolean) ? " + letters" : ""}`,
-        threadField("p-color", "Thread", el.color) + letterColorFields(el)) +
+        threadField("p-color", "Thread", el.color) + letterColorFields(el) +
+        (String(el.font || "").startsWith("✦") ? "" : selectField("p-style", "Stitch", TEXT_STYLES, el.style || "auto") +
+          (el.style === "satin" && el.height_mm >= 25 ? `<p class="hint">Long satin sweeps (up to 12 mm) on big letters: use firm stabilizer. Sewing them over letters already filled works great - the old stitching holds them flat.</p>` : ""))) +
       section("border", "Border", el.outline ? `${U.len(el.outline.width_mm)} · ${el.outline.only ? "edge only" : "sewn " + (el.outline.first ? "first" : "last")}` : "none", outlineFields(el)) +
       section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else if (el.type === "shape") {

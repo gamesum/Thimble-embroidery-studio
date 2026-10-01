@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw
 import pyembroidery as pe
 from pyembroidery.EmbThreadShv import get_thread_set
 
+from dataclasses import replace
 from .params import RES, params_for
 from . import raster, stitchgen as sg, embfont
 
@@ -354,7 +355,11 @@ def layer_objects(mask, style, P, entry=None):
         sub, (ox, oy), c = comps.pop(k)
         kind = sg.classify(sub, P) if style in (None, "", "auto") else style
         local_entry = None if cur is None else (cur[0] - ox / RES, cur[1] - oy / RES)
-        if kind == "satin":
+        if kind == "satin" and style == "satin":
+            # asked for satin on purpose: let the sweeps run up to 12 mm (the machine's longest
+            # single stitch is 12.7) before splitting them
+            objs = sg.satin_shape(sub, replace(P, satin_max_width=max(P.satin_max_width, 12.0)), local_entry)
+        elif kind == "satin":
             objs = sg.satin_shape(sub, P, local_entry)
         elif kind == "run":
             objs = sg.run_shape(sub, P, local_entry)

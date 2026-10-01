@@ -440,7 +440,7 @@ class StrokeGraph:
             if (leaf_a ^ leaf_b) and len(self.edges) > 1:
                 junction_end = e["pts"][-1] if leaf_a else e["pts"][0]
                 h = self._dt_at(junction_end)
-                if self._length(e) < 0.95 * h + 2:
+                if self._length(e) < (1.7 if h > 35 else 0.95) * h + 2:
                     changed = True
                     continue
             keep.append(e)
@@ -531,8 +531,12 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
         pts = _extend_to_tip(mask, pts[::-1], dt)[::-1]
     if len(pts) >= 5:
         mode = "wrap" if closed else "nearest"
-        pts = np.column_stack([ndimage.gaussian_filter1d(pts[:, 0], 2.0, mode=mode),
-                               ndimage.gaussian_filter1d(pts[:, 1], 2.0, mode=mode)])
+        # the medial axis of a wide stroke wobbles (and bends toward joints); smooth it in
+        # proportion to the stroke width so the stitches sweep evenly across
+        hd = np.median([dt[min(max(int(round(y)), 0), dt.shape[0] - 1), min(max(int(round(x)), 0), dt.shape[1] - 1)] for x, y in pts])
+        sig = 2.0 if hd < 30 else min(0.6 * hd, len(pts) / 6)
+        pts = np.column_stack([ndimage.gaussian_filter1d(pts[:, 0], sig, mode=mode),
+                               ndimage.gaussian_filter1d(pts[:, 1], sig, mode=mode)])
     step = P.satin_spacing / 2 * RES
     # sample finely; the final spacing is chosen below from the outer rail
     c = resample(np.vstack([pts, pts[:1]]) if closed else pts, step / 3)
