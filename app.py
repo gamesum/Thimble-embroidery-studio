@@ -130,6 +130,62 @@ def split_drawing():
     return jsonify(elements=design.split_vector(el, by_color=True))
 
 
+@app.post("/api/split-picture")
+def split_picture():
+    """One picture -> one picture per object (things that don't touch: the ghost, each star).
+    Each piece is cropped from the original, everything else in its box painted the background
+    colour, and placed exactly where it was. Colour settings and stitch mode carry over."""
+    import numpy as np, cv2, math
+    el = request.get_json(force=True)
+    if el.get("type") != "image":
+        return err("Only pictures can be split here.")
+    path = os.path.join(UPLOADS, os.path.basename(el.get("image_id", "")))
+    if not os.path.exists(path):
+        return err("That picture isn't on the server any more - add it again.")
+    im = raster.load_image(path)
+    scale = min(1.0, 1600.0 / max(im.size))  # work at up to 1600 px
+    if scale < 1:
+        im = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))), Image.LANCZOS)
+    arr = np.asarray(im)
+    cols = el.get("colors") or []
+    pal = [tuple(c["rgb"]) for c in cols] or raster.palette(im)
+    labels = raster.snap(arr, pal)
+    bg = raster.background_index(labels)
+    keep = [bool(c.get("keep", i != bg)) for i, c in enumerate(cols)] or [i != bg for i in range(len(pal))]
+    fg = np.isin(labels, [i for i, k in enumerate(keep) if k]).astype(np.uint8)
+    W, H = im.size
+    width_mm = float(el.get("width_mm") or 80)
+    px_mm = W / width_mm
+    # parts closer than ~1 mm belong together; specks under ~2 mm2 are dropped
+    gap = max(1, int(round(1.0 * px_mm)))
+    joined = cv2.dilate(fg, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * gap + 1, 2 * gap + 1)))
+    n, cc, st, _ = cv2.connectedComponentsWithStats(joined, connectivity=8)
+    pieces = [j for j in range(1, n) if (fg[cc == j]).sum() >= 2.0 * px_mm * px_mm]
+    if len(pieces) < 2:
+        return jsonify(elements=[])
+    bg_rgb = tuple(int(v) for v in pal[bg]) if bg is not None and bg < len(pal) else (255, 255, 255)
+    rot = math.radians(float(el.get("rotation") or 0))
+    c, s_ = math.cos(rot), math.sin(rot)
+    out = []
+    for n_i, j in enumerate(sorted(pieces, key=lambda j: -st[j, cv2.CC_STAT_AREA])):
+        x, y, w, h = (int(v) for v in st[j, :4])
+        pad = gap + 2
+        x0, y0, x1, y1 = max(0, x - pad), max(0, y - pad), min(W, x + w + pad), min(H, y + h + pad)
+        crop = arr[y0:y1, x0:x1].copy()
+        crop[cc[y0:y1, x0:x1] != j] = bg_rgb
+        image_id = uuid.uuid4().hex[:12] + ".png"
+        Image.fromarray(crop).save(os.path.join(UPLOADS, image_id))
+        # centre offset in mm (picture-local), then turned with the picture
+        dx = ((x0 + x1) / 2 - W / 2) / px_mm
+        dy = ((y0 + y1) / 2 - H / 2) / px_mm
+        piece = {k: v for k, v in el.items() if k not in ("id", "image_id", "width_mm", "aspect", "x", "y", "name")}
+        piece.update(image_id=image_id, width_mm=round((x1 - x0) / px_mm, 2), aspect=(y1 - y0) / (x1 - x0),
+                     x=round(float(el.get("x") or 0) + dx * c - dy * s_, 2), y=round(float(el.get("y") or 0) + dx * s_ + dy * c, 2),
+                     name="%s %d" % (el.get("name") or "Picture", n_i + 1))
+        out.append(piece)
+    return jsonify(elements=out)
+
+
 @app.get("/api/meta")
 def meta():
     from pyembroidery.EmbThreadShv import get_thread_set

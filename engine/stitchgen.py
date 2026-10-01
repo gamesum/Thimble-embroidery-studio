@@ -977,6 +977,13 @@ def run_shape(mask, P, entry=None, repeats=2):
             walk(e["b"] if fwd else e["a"])
             seq.extend(out[::-1])
     walk(start)
+    if seq and repeats >= 3:
+        # bean stitch: every stitch sewn forward, back and forward again - a bold hand-drawn line
+        bean = [seq[0]]
+        for q in seq[1:]:
+            p0 = bean[-1]
+            bean += [q, p0, q]
+        seq = bean
     return [clean([tuple(p) for p in to_mm(np.asarray(seq))], P.min_stitch)] if seq else []
 
 

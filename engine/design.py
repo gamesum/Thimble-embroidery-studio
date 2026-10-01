@@ -222,23 +222,42 @@ def trace_layers(el, pal, masks, cols, bg):
                 full[dy:, dx:] |= sel
             edge.setdefault(o, np.zeros((h, w), bool))
             edge[o] |= full[1:h + 1, 1:w + 1]
-    width = 1.2 if bold else 0.3  # mm
-    r = max(1, int(round(width * RES / 2)))
+    from skimage.morphology import skeletonize
+    width = min(4.0, max(0.5, num(el.get("trace_width"), 1.2))) if bold else 0.3  # mm
+    min_len = max(0.0, num(el.get("trace_min"), 3.0))  # mm: shorter lines are left out
+    r = max(1, int(round(width * RES)))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    kh = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (r | 1, r | 1))
+
+    def long_enough(part):
+        return np.count_nonzero(skeletonize(part)) / RES >= min_len
     out = []
+    style = "satin" if bold else ("run3" if el.get("trace_repeat") == 3 else "run")
     for i in range(len(masks)):
         m = np.zeros((h, w), bool)
         if i in edge:
-            e = cv2.dilate(edge[i].astype(np.uint8), k).astype(bool)
-            # drop crumbs: edge bits shorter than ~1.5 mm are quantising noise
-            n, cc, st, _ = cv2.connectedComponentsWithStats(e.astype(np.uint8), connectivity=8)
+            n, cc = cv2.connectedComponents(edge[i].astype(np.uint8), connectivity=8)
+            e = np.zeros((h, w), bool)
             for j in range(1, n):
-                if max(st[j, cv2.CC_STAT_WIDTH], st[j, cv2.CC_STAT_HEIGHT]) >= 1.5 * RES:
-                    m |= cc == j
+                part = cc == j
+                if np.count_nonzero(part) / RES >= max(min_len, 1.0):
+                    e |= part
+            if e.any():
+                if bold:
+                    # the line lies on the owner's side of the edge, so holes (eyes) keep their size
+                    band = cv2.dilate(e.astype(np.uint8), k).astype(bool) & (lab == i)
+                    m |= band | e
+                else:
+                    m |= e
         if i in lines:
-            m |= cv2.dilate(lines[i].astype(np.uint8), k).astype(bool) if bold else lines[i]
+            n, cc = cv2.connectedComponents(lines[i].astype(np.uint8), connectivity=8)
+            for j in range(1, n):
+                part = cc == j
+                if long_enough(part):
+                    # drawn lines keep their own weight (or the chosen width if that's bolder)
+                    m |= cv2.dilate(part.astype(np.uint8), kh).astype(bool) if bold else part
         if m.any():
-            out.append((color[i], m, (0, 0), "satin" if bold else "run"))
+            out.append((color[i], m, (0, 0), style))
     # dark lines last, so they sit on top where they cross lighter ones
     out.sort(key=lambda t: -lum[[c for c in range(len(masks)) if color[c] == t[0]][0]])
     return out
@@ -460,6 +479,8 @@ def layer_objects(mask, style, P, entry=None):
             objs = sg.satin_shape(sub, P, local_entry)
         elif kind == "run":
             objs = sg.run_shape(sub, P, local_entry)
+        elif kind == "run3":
+            objs = sg.run_shape(sub, P, local_entry, repeats=3)
         elif kind == "satinfill":
             objs = []
             for poly in sg.mask_to_polygons(sub):
