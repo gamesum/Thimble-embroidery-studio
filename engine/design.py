@@ -141,6 +141,9 @@ def element_layers(el):
         sm = min(4.0, max(0.0, num(el.get("smooth"), 0)))
         if sm > 0 and masks:
             masks = smooth_masks(masks, sm)
+        for i, m in enumerate(masks):  # grainy artwork: fill the pinholes in kept colours
+            if i != bg:
+                masks[i] = fill_pinholes(m)
         if el.get("trace"):
             return trace_layers(el, pal, masks, cols, bg)
         out = []
@@ -148,6 +151,10 @@ def element_layers(el):
             c = cols[i] if i < len(cols) else {"keep": i != bg}  # background is off by default
             if c.get("keep", True) and m.any():
                 out.append((c.get("thread") or rgb_to_hex(pal[i]), m, (0, 0), c.get("style", "auto")))
+        if el.get("eyes", True) and bg is not None and bg < len(pal):
+            # holes show the picture's background colour (the eyes): sew them in that colour
+            bcol = cols[bg] if bg < len(cols) else {}
+            out += eye_layers(out, bcol.get("thread") or rgb_to_hex(pal[bg]))
         return out
     return []
 
@@ -331,7 +338,10 @@ def split_vector(el, by_color=False):
         for i, p in enumerate(parts):
             groups.setdefault((p.get("color") or "").lower(), []).append(i)
         if len(groups) < 2:
-            return [el]
+            # one colour too (a bunch of lines that touch): every line / shape on its own
+            if n < 2:
+                return [el]
+            groups = {i: [i] for i in range(n)}
     rot = math.radians(num(el.get("rotation"), 0))
     out = []
     for idx in sorted(groups.values(), key=lambda g: g[0]):
@@ -361,6 +371,58 @@ def split_vector(el, by_color=False):
         out.append(dict(type="vector", name=name, parts=new, width_mm=round(bw * w, 1),
                         aspect=round((v1 - v0) / bw, 4), x=round(cx, 1), y=round(cy, 1), rotation=el.get("rotation", 0)))
     return out
+
+
+EYE_MAX = 25.0  # mm2: enclosed holes up to this size are eyes, nostrils, buttons...
+EYE_MIN = 1.5   # mm2 (smaller holes are grain in the picture - filled in, see fill_pinholes)
+EYE_DEPTH = 0.5  # mm of stitching all round: a gap at the edge of a skirt isn't an eye
+
+
+def fill_pinholes(m, max_mm2=EYE_MIN):
+    """Grainy / textured artwork leaves tiny pinholes all over an area; the stitching would treat
+    the area as a net of thin strokes. Fill holes smaller than max_mm2."""
+    inv = (~m).astype(np.uint8)
+    n, cc, st, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    h, w = m.shape
+    out = m.copy()
+    for j in range(1, n):
+        x, y, bw, bh, area = st[j]
+        if x == 0 or y == 0 or x + bw >= w or y + bh >= h:
+            continue
+        if area < max_mm2 * RES * RES:
+            out[cc == j] = True
+    return out
+
+
+def eye_layers(layers, color):
+    """Small holes completely surrounded by stitching (eyes, nostrils) come out ragged as holes in a
+    fill. Digitizers sew them as a solid satin dot in a dark thread on top, overlapping the edge."""
+    if not layers:
+        return []
+    h, w = layers[0][1].shape
+    sewn = np.zeros((h, w), bool)
+    for _, m, (ox, oy), _ in layers:
+        sewn[oy:oy + m.shape[0], ox:ox + m.shape[1]] |= m[:h - oy, :w - ox]
+    n, cc, st, _ = cv2.connectedComponentsWithStats((~sewn).astype(np.uint8), connectivity=4)
+    dots = np.zeros((h, w), bool)
+    for j in range(1, n):
+        x, y, bw, bh, area = st[j]
+        if x == 0 or y == 0 or x + bw >= w or y + bh >= h:
+            continue  # open to the outside: background, not a hole
+        if not (EYE_MIN * RES * RES <= area <= EYE_MAX * RES * RES):
+            continue
+        # eyes are compact (not slivers) and sit well inside the stitching
+        if max(bw, bh) > 2.6 * max(1, min(bw, bh)) or area < 0.45 * bw * bh:
+            continue
+        hole = cc == j
+        ring = cv2.dilate(hole.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(EYE_DEPTH * RES) + 1,) * 2)).astype(bool) & ~hole
+        if (ring & ~sewn).sum() > 0.03 * ring.sum():
+            continue
+        dots |= hole
+    if not dots.any():
+        return []
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * int(0.3 * RES) + 1,) * 2)
+    return [(color, cv2.dilate(dots.astype(np.uint8), k).astype(bool), (0, 0), "auto")]
 
 
 def vector_layers(el):
@@ -416,6 +478,11 @@ def vector_layers(el):
             for pts in lines[c]:
                 cv2.polylines(lm, [pts], False, 1, max(1, int(0.3 * RES)), lineType=cv2.LINE_8)
             layers.append((c, lm.astype(bool), (0, 0), "run"))
+    if el.get("eyes", True):
+        # the darkest thread already in the drawing (or near-black) for eyes
+        lum = lambda hx: sum(int(hx[i:i + 2], 16) * f for i, f in ((1, 0.299), (3, 0.587), (5, 0.114)))
+        dark = min(order, key=lum) if order else "#1e1e1e"
+        layers += eye_layers(layers, dark if lum(dark) < 90 else "#1e1e1e")
     return layers
 
 
