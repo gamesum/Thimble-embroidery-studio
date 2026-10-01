@@ -216,7 +216,7 @@ async function build() {
     const sent = JSON.stringify(S.layout);
     const res = await api("/api/build", S.layout);
     if (seq !== S.buildSeq) return;
-    S.built = res; S.dirty = false;
+    S.built = res; S.dirty = false; S.fontPrev = null;
     // only drop the resize previews once the stitches really are for the design as it is now
     if (sent === JSON.stringify(S.layout)) S.vis = {};
     renderChart(); draw();
@@ -929,19 +929,46 @@ function wireProps(el) {
     if (k === "bottom") setProp(el, "y", r1(H / 2 - hh), false);
     px.value = U.show(el.x); py.value = U.show(el.y); scheduleBuild();
   }));
-  if (el.type === "text") fontPicker($("#fontpick"), el.font, (f) => { setProp(el, "font", f); });
+  if (el.type === "text") fontPicker($("#fontpick"), el.font,
+    (f) => { clearTimeout(fontPrevTimer); fontPrevSeq++; S.fontPrev = null; setProp(el, "font", f); },
+    (f) => previewFont(el, f));
 }
 
 // ------------------------------------------------------------------ font picker
 const CATS = ["All", "Pro digitized", "Block", "Script", "Serif", "Varsity", "Blackletter", "Rounded", "Display", "Handwritten", "Western"];
-function fontPicker(host, current, onPick) {
+// hover a font in the picker: stitch a throw-away copy of the design with that font and show it;
+// leaving puts the real stitches back (nothing is changed until a font is clicked)
+let fontPrevSeq = 0, fontPrevTimer = null;
+function previewFont(el, font) {
+  clearTimeout(fontPrevTimer);
+  const seq = ++fontPrevSeq;
+  if (!font) {
+    if (S.fontPrev) { S.built = S.fontPrev.built; S.fontPrev = null; draw(); }
+    return;
+  }
+  fontPrevTimer = setTimeout(async () => {
+    const idx = S.layout.elements.indexOf(el);
+    if (idx < 0) return;
+    const lay = JSON.parse(snapshot());
+    lay.elements[idx].font = font;
+    try {
+      const r = await fetch("/api/build", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(lay) });
+      const res = await r.json();
+      if (seq !== fontPrevSeq || !r.ok || res.error) return; // moved on to another font, or it failed
+      if (!S.fontPrev) S.fontPrev = { built: S.built };
+      S.built = res; draw();
+    } catch (e) { /* a preview that fails just doesn't show */ }
+  }, 140);
+}
+
+function fontPicker(host, current, onPick, onHover = () => {}) {
   const prev = (n) => `/api/font-preview/${encodeURIComponent(n)}`;
   host.innerHTML = `<button type="button" class="btn fontpick-btn"><img alt="${esc(current)}" src="${prev(current)}"><span>▾</span></button>`;
   const btn = host.firstElementChild;
   let cat = "All";
   btn.onclick = (e) => {
     e.stopPropagation();
-    if (host.querySelector(".fontpick-pop")) { host.querySelector(".fontpick-pop").remove(); return; }
+    if (host.querySelector(".fontpick-pop")) { host.querySelector(".fontpick-pop").remove(); onHover(null); return; }
     const pop = document.createElement("div");
     pop.className = "fontpick-pop";
     pop.innerHTML = `<input placeholder="Search ${S.fonts.length} fonts…" aria-label="Search fonts">
@@ -957,6 +984,12 @@ function fontPicker(host, current, onPick) {
     };
     fill(); q.focus();
     q.oninput = fill;
+    let hovered = null;
+    list.onmouseover = (ev) => {
+      const it = ev.target.closest("[data-f]");
+      if (it && it.dataset.f !== hovered) { hovered = it.dataset.f; onHover(hovered); }
+    };
+    list.onmouseleave = () => { hovered = null; onHover(null); };
     pop.onclick = (ev) => {
       ev.stopPropagation();
       const c = ev.target.closest("[data-c]");
@@ -964,7 +997,7 @@ function fontPicker(host, current, onPick) {
       const it = ev.target.closest("[data-f]");
       if (it) { current = it.dataset.f; btn.querySelector("img").src = prev(current); pop.remove(); onPick(current); }
     };
-    const close = (ev) => { if (!host.contains(ev.target)) { pop.remove(); document.removeEventListener("click", close); } };
+    const close = (ev) => { if (!host.contains(ev.target)) { pop.remove(); onHover(null); document.removeEventListener("click", close); } };
     setTimeout(() => document.addEventListener("click", close), 0);
   };
 }
