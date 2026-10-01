@@ -170,9 +170,12 @@ async function build() {
   const seq = ++S.buildSeq;
   busy(true);
   try {
+    const sent = JSON.stringify(S.layout);
     const res = await api("/api/build", S.layout);
     if (seq !== S.buildSeq) return;
-    S.built = res; S.dirty = false; S.vis = {};
+    S.built = res; S.dirty = false;
+    // only drop the resize previews once the stitches really are for the design as it is now
+    if (sent === JSON.stringify(S.layout)) S.vis = {};
     renderChart(); draw();
     if (S.autoSimplify) { S.autoSimplify = false; simplifyThreads(true); }
   } catch (e) {
@@ -260,7 +263,7 @@ function groupBox(idx) {
   // bounding box (mm) of several items, from their stitched sizes
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const i of idx) {
-    const el = S.layout.elements[i], b = S.built?.elements?.[i];
+    const el = S.layout.elements[i], b = shownSize(el, i);
     if (!b) continue;
     const a = ((el.rotation || 0) * Math.PI) / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
     const hw = (b.w * c + b.h * s) / 2, hh = (b.w * s + b.h * c) / 2;
@@ -664,7 +667,7 @@ function renderProps() {
         (String(el.font || "").startsWith("✦") ? "" : selectField("p-style", "Stitch", TEXT_STYLES, el.style || "auto") +
           (el.style === "satin" && el.height_mm >= 25 ? `<p class="hint">Long satin sweeps (up to 12 mm) on big letters: use firm stabilizer. Sewing them over letters already filled works great - the old stitching holds them flat.</p>` : ""))) +
       section("border", "Border", el.outline ? `${U.len(el.outline.width_mm)} · ${el.outline.only ? "edge only" : "sewn " + (el.outline.first ? "first" : "last")}` : "none", outlineFields(el)) +
-      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}${el.stretch_x || el.stretch_y ? " · stretched" : ""}`, posFields(el));
   } else if (el.type === "shape") {
     h += `<h2>Shape</h2>` + field("Kind", `<div class="chips">${SHAPES.map(([k, t]) => `<button class="chip${k === el.kind ? " on" : ""}" data-kind="${k}">${t}</button>`).join("")}</div>`) +
       `<div class="two">${field(U.lab("Width (mm)"), `<input type="number" id="p-width_mm" step="${U.step(0.5)}" value="${U.show(el.width_mm)}">`)}${field(U.lab("Height (mm)"), `<input type="number" id="p-height_mm" step="${U.step(0.5)}" value="${U.show(el.height_mm)}">`)}</div>` +
@@ -672,7 +675,7 @@ function renderProps() {
       section("color", "Thread &amp; stitch", `<span class="dot" style="background:${el.color}"></span>${esc(threadName(el.color))}`,
         threadField("p-color", "Thread", el.color) + selectField("p-style", "Stitch", STYLES, el.style || "auto")) +
       section("border", "Border", el.outline ? U.len(el.outline.width_mm) : "none", outlineFields(el)) +
-      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}${el.stretch_x || el.stretch_y ? " · stretched" : ""}`, posFields(el));
   } else if (el.type === "stitches") {
     const k = el.width_mm / (el.orig_w || el.width_mm);
     h += `<h2>Stitch file</h2>` + rangeField("p-width_mm", "Width (mm)", Math.max(3, el.orig_w * 0.5), el.orig_w * 1.5, 0.5, el.width_mm, "len") +
@@ -684,14 +687,14 @@ function renderProps() {
         <p class="hint">The AI reads it like a picture and rebuilds real text, shapes and drawings in its place.
         Tracing is free and needs no AI - fine for simple shapes; lettering comes out better with the AI.</p></div>` +
       field("Threads", `<div class="vcolors">${(el.blocks || []).map((b, i) => `<label class="vcolor"><input type="color" data-sc="${i}" value="${b.color}"><span>${i + 1}. ${esc(threadName(b.color))}</span></label>`).join("")}</div>`) +
-      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}${el.stretch_x || el.stretch_y ? " · stretched" : ""}`, posFields(el));
   } else if (el.type === "vector") {
     const cols = [...new Set((el.parts || []).map((p) => p.color.toLowerCase()))];
     h += `<h2>Drawing</h2>` + rangeField("p-width_mm", "Width (mm)", 5, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
       `<p class="hint">Redrawn from your picture as clean shapes (${(el.parts || []).length} parts), so it stitches smoothly.</p>` +
       `<button type="button" class="btn small" id="p-split" title="Make each object (e.g. the lights, the mountains) its own layer">Split into pieces</button>` +
       field("Threads", `<div class="vcolors">${cols.map((c) => `<label class="vcolor"><input type="color" data-vc="${c}" value="${c}"><span>${esc(threadName(c))}</span></label>`).join("")}</div>`) +
-      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}${el.stretch_x || el.stretch_y ? " · stretched" : ""}`, posFields(el));
   } else {
     const cols = el.colors || [];
     h += `<h2>Picture</h2>` + rangeField("p-width_mm", "Width (mm)", 10, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
@@ -712,7 +715,7 @@ function renderProps() {
           ${el.trace ? "" : `<select data-ci="${i}" data-k="style">${STYLES.map(([v, t]) => `<option value="${v}"${v === (c.style || "auto") ? " selected" : ""}>${t.split(" —")[0].replace(" (recommended)", "")}</option>`).join("")}</select>`}
         </div>`).join("")}</div>`) +
       `<p class="hint">Flat artwork (logos, clip art, lettering) stitches best. Photos won't.</p>` +
-      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
+      section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}${el.stretch_x || el.stretch_y ? " · stretched" : ""}`, posFields(el));
   }
   box.innerHTML = h;
   wireProps(el);
@@ -1180,7 +1183,18 @@ function drawArtwork(el, b) {
 
 // transient visual scale per element while a resize is in flight (until the rebuild lands)
 S.vis = {};
-function visOf(el) { return S.vis[el.id] || { fx: 1, fy: 1 }; }
+function visOf(el) {
+  // while a resize waits for its stitches: draw the piece at the size it's going to be
+  const v = S.vis[el.id], b = v && S.built?.elements?.[S.layout.elements.indexOf(el)];
+  return b && b.w && b.h ? { fx: v.w / b.w, fy: v.h / b.h } : { fx: 1, fy: 1 };
+}
+function shownSize(el, i) {
+  // the size a piece is drawn at right now (mm): its stitches, or a resize still being stitched
+  const b = S.built?.elements?.[i];
+  if (!b) return null;
+  const v = S.vis[el.id];
+  return v ? { w: v.w, h: v.h } : { w: b.w, h: b.h };
+}
 
 function selBox(el, i) {
   const b = S.built?.elements?.[i];
@@ -1383,14 +1397,14 @@ cv.addEventListener("pointerdown", (e) => {
     const gh = groupHandles(), idx = selected();
     beginEdit();
     drag = { kind: h === "rot" ? "grot" : "gresize", handle: h, box: gh.box,
-      items: idx.map((i) => ({ el: S.layout.elements[i], start: JSON.parse(JSON.stringify(S.layout.elements[i])) })),
+      items: idx.map((i) => ({ el: S.layout.elements[i], start: JSON.parse(JSON.stringify(S.layout.elements[i])), size: shownSize(S.layout.elements[i], i) })),
       cx: (gh.box.x0 + gh.box.x1) / 2, cy: (gh.box.y0 + gh.box.y1) / 2 };
     drag.a0 = Math.atan2(my - drag.cy, mx - drag.cx);
     cv.setPointerCapture(e.pointerId);
     return;
   }
   if (h) {
-    const el = S.layout.elements[S.sel], b = S.built.elements[S.sel];
+    const el = S.layout.elements[S.sel], b = shownSize(S.layout.elements[S.sel], S.sel);
     beginEdit();
     drag = { kind: h === "rot" ? "rot" : "resize", handle: h, el, start: JSON.parse(JSON.stringify(el)),
       w0: b.w, h0: b.h, a0: Math.atan2(my - el.y, mx - el.x) };
@@ -1473,7 +1487,7 @@ function applyResize(e, mx, my) {
   const ra = ((s0.rotation || 0) * Math.PI) / 180;
   el.x = Math.round((s0.x + cxL * Math.cos(ra) - cyL * Math.sin(ra)) * 10) / 10;
   el.y = Math.round((s0.y + cxL * Math.sin(ra) + cyL * Math.cos(ra)) * 10) / 10;
-  S.vis[el.id] = { fx, fy };
+  S.vis[el.id] = { w: W * fx, h: H * fy };
 }
 
 function applyGroupResize(e, mx, my) {
@@ -1491,7 +1505,7 @@ function applyGroupResize(e, mx, my) {
       fx = fy = clamp(((mx - ax) * vx + (my - ay) * vy) / (vx * vx + vy * vy), 0.08, 12);
     } else fx = fy = sx ? fx : fy;
   }
-  for (const { el, start } of d.items) {
+  for (const { el, start, size } of d.items) {
     // a piece turned on its side swaps the factors; one at an odd angle scales evenly
     const r = (((start.rotation || 0) % 180) + 180) % 180;
     let ex = fx, ey = fy;
@@ -1500,7 +1514,7 @@ function applyGroupResize(e, mx, my) {
     const got = scaleElement(el, start, ex, ey);
     el.x = Math.round((ax + (start.x - ax) * fx) * 10) / 10;
     el.y = Math.round((ay + (start.y - ay) * fy) * 10) / 10;
-    S.vis[el.id] = got;
+    if (size) S.vis[el.id] = { w: size.w * got.fx, h: size.h * got.fy };
   }
 }
 
