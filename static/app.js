@@ -2300,6 +2300,13 @@ async function saveSettings() {
   $("#dlgSettings").close();
   renderProps(); scheduleBuild(0); save_local();
 }
+$("#openLegal").onclick = async () => {
+  $("#dlgLegal").showModal();
+  try {
+    const r = await api("/api/legal");
+    $("#legalFonts").innerHTML = r.fonts.map((f) => `<div><b>${esc(f.name)}</b> - ${esc(f.license)}${f.original ? ` (from ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.original)}</a>` : esc(f.original)})` : ""}</div>`).join("");
+  } catch (e) { $("#legalFonts").textContent = "Each font's license is listed in its font.json file in the source code."; }
+};
 const webProjects = {
   all() { try { return JSON.parse(localStorage.getItem("thimble.projects") || "{}"); } catch (e) { return {}; } },
   save(layout) {

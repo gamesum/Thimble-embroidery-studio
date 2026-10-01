@@ -223,7 +223,30 @@
         <p class="muted small">Only needed for a key that was made outside a workspace. Find it in the Anthropic website under Settings → Workspaces. Leave empty otherwise.</p>
       </details>
     </div>
-    <menu><button value="cancel" class="btn ghost">Close</button><button type="button" id="setSave" class="btn primary">Save</button></menu>
+    <menu><button type="button" class="btn ghost small legal-link" id="openLegal">About &amp; licenses</button><button value="cancel" class="btn ghost">Close</button><button type="button" id="setSave" class="btn primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlgLegal" class="sheet legal">
+  <form method="dialog">
+    <h2>About &amp; licenses</h2>
+    <p><b>Thimble embroidery studio.</b> Free software under the
+      <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU General Public License v3</a>:
+      you may use, study, share and change it. Source code:
+      <a href="https://github.com/gamesum/Thimble-embroidery-studio" target="_blank" rel="noopener">github.com/gamesum/Thimble-embroidery-studio</a>.
+      It comes with no warranty.</p>
+    <h3>Ink/Stitch</h3>
+    <p>The ✦ embroidery fonts, the way they are stitched, and the thread-brand color charts come from
+      <a href="https://inkstitch.org" target="_blank" rel="noopener">Ink/Stitch</a>, the free embroidery
+      extension for Inkscape (GPL v3), and its font authors. Thank you!</p>
+    <h3>Embroidery fonts</h3>
+    <div class="legal-fonts" id="legalFonts">Loading…</div>
+    <h3>Other open-source parts</h3>
+    <p class="small">TrueType fonts from Google Fonts (SIL Open Font License 1.1) · Flask (BSD) · pyembroidery (MIT) ·
+      OpenCV (Apache 2.0) · NumPy, SciPy, scikit-image, Shapely, skan (BSD) · Pillow (MIT-CMU) · pillow-heif (BSD) ·
+      svgelements (MIT) · Anthropic SDK (MIT). Picture reading uses Claude by Anthropic with your own key.</p>
+    <p class="small muted">Husqvarna, Viking, Designer I and the thread brand names belong to their owners; Thimble isn't affiliated with them.</p>
+    <menu><button value="cancel" class="btn primary">Close</button></menu>
   </form>
 </dialog>
 
@@ -236,7 +259,6 @@
 </dialog>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
-<a class="credit" href="https://inkstitch.org" target="_blank" rel="noopener">Embroidery fonts &amp; thread charts from Ink/Stitch</a>
 <script src="/static/app.js"></script>
 </body>
 </html>

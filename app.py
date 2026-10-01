@@ -266,6 +266,25 @@ def threads_for(brand):
     return resp
 
 
+@app.get("/api/legal")
+def legal():
+    """Every embroidery font with its author's license (for the About & licenses page)."""
+    out = []
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts_emb")
+    for d in sorted(os.listdir(base)):
+        p = os.path.join(base, d, "font.json")
+        if not os.path.exists(p):
+            continue
+        try:
+            j = json.load(open(p, encoding="utf8"))
+        except Exception:
+            continue
+        lic = (j.get("font_license") or "see Ink/Stitch").replace("SCC-BY-SA", "CC BY-SA").replace("Mublic Domain", "Public Domain")
+        out.append(dict(name=j.get("name") or d, license=lic,
+                        original=j.get("original_font") or "", url=j.get("original_font_url") or ""))
+    return jsonify(fonts=out)
+
+
 @app.get("/api/meta")
 def meta():
     from pyembroidery.EmbThreadShv import get_thread_set
