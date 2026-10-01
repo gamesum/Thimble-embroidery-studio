@@ -692,11 +692,15 @@ function renderProps() {
     const cols = el.colors || [];
     h += `<h2>Picture</h2>` + rangeField("p-width_mm", "Width (mm)", 10, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
       `<p class="hint">About ${Math.round(el.width_mm * (el.aspect || 1))} mm tall.</p>` +
+      field("Stitch as", `<div class="seg3">${[["", "Filled"], ["trace", "Traced lines"]].map(([v, t]) =>
+        `<button class="chip${(el.trace ? "trace" : "") === v ? " on" : ""}" data-trace="${v}">${t}</button>`).join("")}</div>`) +
+      (el.trace ? selectField("p-trace_line", "Line", [["run", "Running stitch - fine, hand-drawn look"], ["satin", "Satin line - bold and shiny"]], el.trace_line || "run") +
+        `<p class="hint">Only the edges between colors are sewn - each edge once, in the darker thread - and thin lines are sewn down their middle. Untick a color to leave its edges out.</p>` : "") +
       field("Colors <small>(untick to skip)</small>", `<div class="imgcolors">${cols.map((c, i) => `
         <div class="imgcolor"><span class="sw" style="background:${c.hex}" title="In the picture"></span>
           <label class="radio"><input type="checkbox" data-ci="${i}" data-k="keep"${c.keep ? " checked" : ""}> ${Math.round(c.share * 100)}%</label>
           <input type="color" data-ci="${i}" data-k="thread" value="${c.thread}" title="Thread color">
-          <select data-ci="${i}" data-k="style">${STYLES.map(([v, t]) => `<option value="${v}"${v === (c.style || "auto") ? " selected" : ""}>${t.split(" —")[0].replace(" (recommended)", "")}</option>`).join("")}</select>
+          ${el.trace ? "" : `<select data-ci="${i}" data-k="style">${STYLES.map(([v, t]) => `<option value="${v}"${v === (c.style || "auto") ? " selected" : ""}>${t.split(" —")[0].replace(" (recommended)", "")}</option>`).join("")}</select>`}
         </div>`).join("")}</div>`) +
       `<p class="hint">Flat artwork (logos, clip art, lettering) stitches best. Photos won't.</p>` +
       section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
@@ -796,6 +800,12 @@ function wireProps(el) {
   }));
   ["width_mm", "height_mm"].forEach((k) => { const i = $("#p-" + k); if (i && i.type === "number" && el.type === "shape") i.onchange = () => setProp(el, k, clamp(Math.round(U.toMm(parseFloat(i.value) || 0) * 10) / 10 || 10, 2, 360)); });
   const st = $("#p-style"); if (st) st.onchange = () => setProp(el, "style", st.value);
+  $$("[data-trace]").forEach((b) => (b.onclick = () => {
+    beginEdit();
+    if (b.dataset.trace) { el.trace = true; el.trace_line = el.trace_line || "run"; } else { delete el.trace; }
+    commit(); scheduleBuild(); save_local(); renderProps(); renderLayers();
+  }));
+  const tl = $("#p-trace_line"); if (tl) tl.onchange = () => setProp(el, "trace_line", tl.value);
   const al = $("#p-align"); if (al) al.onchange = () => setProp(el, "align", al.value);
   wireThread("p-color", () => el.color, (hex) => { setProp(el, "color", hex); if ($("#p-letters")) $("#p-letters").innerHTML = letterChips(el); });
   wireLetterColors(el);

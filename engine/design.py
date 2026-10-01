@@ -138,6 +138,8 @@ def element_layers(el):
         pal = [tuple(c["rgb"]) for c in cols] or None
         pal, masks, _, labels = raster.image_masks(im, num(el.get("width_mm"), 80), pal)
         bg = raster.background_index(labels)
+        if el.get("trace"):
+            return trace_layers(el, pal, masks, cols, bg)
         out = []
         for i, m in enumerate(masks):
             c = cols[i] if i < len(cols) else {"keep": i != bg}  # background is off by default
@@ -145,6 +147,101 @@ def element_layers(el):
                 out.append((c.get("thread") or rgb_to_hex(pal[i]), m, (0, 0), c.get("style", "auto")))
         return out
     return []
+
+
+TRACE_LINE_MAX = 2.0  # mm: parts of the picture this thin are drawn lines - sewn once down the middle
+TRACE_SPECK = 1.5     # mm2: smaller blobs are shading noise, not something to outline
+
+
+def trace_layers(el, pal, masks, cols, bg):
+    """Traced picture: sew the edges between colours as lines instead of filling the areas
+    (line art / redwork look). Each edge is sewn once, in the darker of the two colours beside
+    it; thin parts of the picture (drawn lines) are sewn once along their middle.
+    el["trace_line"]: "run" (running stitch) or "satin" (bold satin line)."""
+    from scipy import ndimage
+    bold = el.get("trace_line") == "satin"
+    h, w = masks[0].shape if masks else (0, 0)
+    keep = [bool((cols[i] if i < len(cols) else {"keep": i != bg}).get("keep", True)) and masks[i].any()
+            for i in range(len(masks))]
+    color = [(cols[i].get("thread") if i < len(cols) else None) or rgb_to_hex(pal[i]) for i in range(len(masks))]
+    lum = [0.299 * pal[i][0] + 0.587 * pal[i][1] + 0.114 * pal[i][2] for i in range(len(masks))]
+    # one clean label per pixel: blur each colour's area and let the strongest win, which rounds
+    # off the pixel staircase of a small picture (the traced line follows these edges)
+    sig = 0.35 * RES
+    stack = np.stack([cv2.GaussianBlur(m.astype(np.float32), (0, 0), sig) for m in masks])
+    lab = np.argmax(stack, 0).astype(np.int32)
+    lab[stack.max(0) < 0.15] = -1
+    # specks of shading (< TRACE_SPECK mm2) would each get their own little loop: let the
+    # surrounding area take them over
+    for i in range(len(masks)):
+        n, cc, st, _ = cv2.connectedComponentsWithStats((lab == i).astype(np.uint8), connectivity=8)
+        for j in range(1, n):
+            if st[j, cv2.CC_STAT_AREA] < TRACE_SPECK * RES * RES:
+                lab[cc == j] = -1
+    masks = [lab == i for i in range(len(masks))]
+    # drawn lines: thin pieces of a kept colour are sewn down the middle, not outlined
+    lines = {}
+    for i, m in enumerate(masks):
+        if not keep[i]:
+            continue
+        n, cc = cv2.connectedComponents(m.astype(np.uint8), connectivity=8)
+        dt = cv2.distanceTransform(m.astype(np.uint8), cv2.DIST_L2, 5)
+        for j in range(1, n):
+            part = cc == j
+            if 2 * float(np.percentile(dt[part], 95)) / RES <= TRACE_LINE_MAX:
+                lines.setdefault(i, np.zeros((h, w), bool))
+                lines[i] |= part
+                lab[part] = -1  # the line is not an edge between areas
+    if (lab < 0).any() and (lab >= 0).any():
+        _, (iy, ix) = ndimage.distance_transform_edt(lab < 0, return_indices=True)
+        lab = lab[iy, ix]
+    # edges between different labels (and the picture's own border around kept areas)
+    L = np.pad(lab, 1, constant_values=-2)
+    edge = {}
+
+    def owner(a, b):
+        ka = a >= 0 and keep[a]
+        kb = b >= 0 and keep[b]
+        if ka and kb:
+            return a if lum[a] <= lum[b] else b
+        return a if ka else (b if kb else None)
+    H, W = L.shape
+    for dy, dx in ((0, 1), (1, 0)):
+        A = L[:H - dy, :W - dx]
+        B = L[dy:, dx:]
+        diff = A != B
+        for a, b in set(zip(A[diff].tolist(), B[diff].tolist())):
+            o = owner(a, b)
+            if o is None:
+                continue
+            sel = diff & (A == a) & (B == b)
+            full = np.zeros((H, W), bool)
+            full[:H - dy, :W - dx] |= sel  # mark the pixel on the A side
+            if o == b:                     # ...or on the B side, so the line sits on the owner's area
+                full = np.zeros((H, W), bool)
+                full[dy:, dx:] |= sel
+            edge.setdefault(o, np.zeros((h, w), bool))
+            edge[o] |= full[1:h + 1, 1:w + 1]
+    width = 1.2 if bold else 0.3  # mm
+    r = max(1, int(round(width * RES / 2)))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    out = []
+    for i in range(len(masks)):
+        m = np.zeros((h, w), bool)
+        if i in edge:
+            e = cv2.dilate(edge[i].astype(np.uint8), k).astype(bool)
+            # drop crumbs: edge bits shorter than ~1.5 mm are quantising noise
+            n, cc, st, _ = cv2.connectedComponentsWithStats(e.astype(np.uint8), connectivity=8)
+            for j in range(1, n):
+                if max(st[j, cv2.CC_STAT_WIDTH], st[j, cv2.CC_STAT_HEIGHT]) >= 1.5 * RES:
+                    m |= cc == j
+        if i in lines:
+            m |= cv2.dilate(lines[i].astype(np.uint8), k).astype(bool) if bold else lines[i]
+        if m.any():
+            out.append((color[i], m, (0, 0), "satin" if bold else "run"))
+    # dark lines last, so they sit on top where they cross lighter ones
+    out.sort(key=lambda t: -lum[[c for c in range(len(masks)) if color[c] == t[0]][0]])
+    return out
 
 
 # border sewn under the letters: the letters' pull compensation spreads ~0.3-0.4 mm over it,
