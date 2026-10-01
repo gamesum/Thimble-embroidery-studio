@@ -535,6 +535,27 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
         # proportion to the stroke width so the stitches sweep evenly across
         hd = np.median([dt[min(max(int(round(y)), 0), dt.shape[0] - 1), min(max(int(round(x)), 0), dt.shape[1] - 1)] for x, y in pts])
         sig = 2.0 if hd < 30 else min(0.6 * hd, len(pts) / 6)
+        if hd >= 30 and not closed:
+            # a wide stroke that is basically straight (legs of A, V, W...) gets one straight
+            # centre line, so every stitch runs at the same angle from end to end
+            # (fitted to the middle of the stroke: the medial axis swerves into corners at the ends)
+            mid = pts[len(pts) // 5: len(pts) - len(pts) // 5]
+            if len(mid) >= 5:
+                cen = mid.mean(0)
+                _, _, vt = np.linalg.svd(mid - cen)
+                ax = vt[0]
+                dev = np.abs((mid - cen) @ np.array([-ax[1], ax[0]]))
+                proj = (pts - cen) @ ax
+                ln = float(proj.max() - proj.min())
+                if ln > 2 * hd and float(np.percentile(dev, 90)) < 0.25 * hd:
+                    t0, t1 = (pts[0] - cen) @ ax, (pts[-1] - cen) @ ax
+                    sg_ = 1.0 if t1 > t0 else -1.0
+                    # run each end on to the outline (stroke ends and split corners)
+                    if ext_end:
+                        t1 += sg_ * _raycast(mask, cen + t1 * ax, sg_ * ax, 4 * hd + 4)
+                    if ext_start:
+                        t0 -= sg_ * _raycast(mask, cen + t0 * ax, -sg_ * ax, 4 * hd + 4)
+                    pts = cen + np.linspace(t0, t1, max(5, len(pts)))[:, None] * ax
         pts = np.column_stack([ndimage.gaussian_filter1d(pts[:, 0], sig, mode=mode),
                                ndimage.gaussian_filter1d(pts[:, 1], sig, mode=mode)])
     step = P.satin_spacing / 2 * RES
@@ -574,7 +595,10 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
             t = 1 - dist[i] / D
             d = (1 - t) * nor[i] + t * vv
             rdir[i] = d / (np.hypot(*d) or 1)
-    caps = np.minimum(1.45 * hdt + 1.0, 1.7 * med + 1.5) / np.maximum(np.abs(np.sum(rdir * nor, 1)), 0.5)
+    # wide strokes keep their full width right to a flat cut (local thickness drops to nothing
+    # at the outline, which would taper the column to a point and leave the corners bare)
+    local = np.maximum(hdt, med) if med >= 30 else hdt
+    caps = np.minimum(1.45 * local + 1.0, 1.7 * med + 1.5) / np.maximum(np.abs(np.sum(rdir * nor, 1)), 0.5)
     dl = np.array([_raycast(mask, c[i], rdir[i], caps[i]) for i in range(len(c))])
     dr = np.array([_raycast(mask, c[i], -rdir[i], caps[i]) for i in range(len(c))])
     if len(c) >= 5:
@@ -586,7 +610,7 @@ def satin_column(mask, dt, pts_px, P, ext_start, ext_end, cap_start=False, cap_e
     if len(c) >= 8:
         mid = slice(len(c) // 5, len(c) - len(c) // 5)
         for side in (dl, dr):
-            lim = 1.3 * float(np.median(side[mid])) + 1.0
+            lim = (1.1 if med >= 30 else 1.3) * float(np.median(side[mid])) + 1.0
             np.minimum(side, lim / np.maximum(np.abs(np.sum(rdir * nor, 1)), 0.5), out=side)
     w = dl + dr
     minw = P.satin_min_width * RES
