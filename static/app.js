@@ -259,9 +259,9 @@ function loadExample(key) {
 // ------------------------------------------------------------------ elements
 const SHAPES = [["heart", "Heart"], ["star", "Star"], ["circle", "Circle"], ["ring", "Ring"], ["rect", "Block"],
   ["frame", "Frame"], ["double_frame", "Double frame"], ["offset_frame", "Offset frame"], ["line", "Line"]];
-const TEXT_STYLES = [["auto", "Auto - satin, or fill on big bold letters"], ["satin", "Satin sweeps - long glossy stitches across every stroke"], ["fill", "Fill - rows of short stitches"]];
+const TEXT_STYLES = [["auto", "Auto - satin, or fill on big bold letters"], ["satin", "Satin sweeps - long glossy stitches across every stroke"], ["rows", "Straight across - every stitch side to side, one direction"], ["fill", "Fill - rows of short stitches"]];
 const STYLES = [["auto", "Auto (recommended)"], ["satin", "Satin — follows the strokes"], ["satinfill", "Satin — one direction"],
-  ["fill", "Fill — tatami"], ["contour", "Contour — rings follow the edge"], ["run", "Outline — running stitch"]];
+  ["fill", "Fill — tatami"], ["rows", "Satin rows — straight across, all one direction"], ["contour", "Contour — rings follow the edge"], ["run", "Outline — running stitch"]];
 
 function freeSpotY(h) {
   // stack new things under existing ones so they don't land on top of each other
@@ -550,9 +550,11 @@ function pasteClip() {
 async function mergeSelected() {
   const idx = selected();
   const els = idx.map((i) => S.layout.elements[i]);
-  if (els.length < 2 || els.some((e) => e.type !== "vector")) { toast("Select two or more drawings to merge them."); return; }
+  if (els.length < 2) { toast("Select two or more pieces to merge them."); return; }
+  if (els.some((e) => e.type !== "vector" && e.type !== "image")) { toast("Words and shapes can't be merged into one - use Group (Ctrl+G) to keep them together."); return; }
   try {
     const r = await api("/api/merge-drawings", { elements: els });
+    if (r.element.type === "image") { S.images[r.element.image_id] = { image_id: r.element.image_id, aspect: r.element.aspect, colors: r.element.colors }; keepPicture(r.element.image_id); }
     commit(true); beginEdit();
     const at = Math.min(...idx);
     r.element.id = uid();
@@ -562,7 +564,7 @@ async function mergeSelected() {
     commit(true);
     clearMulti(); S.sel = at;
     renderLayers(); renderProps(); scheduleBuild(0); save_local();
-    toast(`Merged ${els.length} pieces into one drawing.`, "good");
+    toast(`Merged ${els.length} pieces into one ${r.element.type === "image" ? "picture" : "drawing"}.${r.note ? " " + r.note : ""}`, "good");
   } catch (e) { toast(esc(e.message), "bad"); }
 }
 function duplicateSelected() {
@@ -782,8 +784,8 @@ function renderProps() {
         const one = gs.size === 1 && !gs.has("");
         return (one ? "" : `<button class="btn small primary" id="g-group" title="Ctrl+G">Group</button>`) +
           ([...gs].some(Boolean) ? `<button class="btn small" id="g-ungroup" title="Ctrl+Shift+G">Ungroup</button>` : "");
-      })()}<button class="btn small" id="g-dup" title="Ctrl+D">Duplicate</button>${idx.every((i) => S.layout.elements[i].type === "vector")
-        ? `<button class="btn small" id="g-merge" title="Join these drawings into one drawing (Ctrl+M)">Merge into one</button>` : ""}</div>
+      })()}<button class="btn small" id="g-dup" title="Ctrl+D">Duplicate</button>
+        <button class="btn small" id="g-merge" title="Join drawings into one drawing, or pictures into one picture (Ctrl+M)">Merge into one</button></div>
       <div class="row" style="gap:6px"><button class="btn small" id="g-del">Delete ${idx.length} pieces</button>
         <button class="btn small ghost" id="g-clear">Clear selection</button></div>
       <ul class="multi-list">${idx.map((i) => `<li><span class="dot" style="background:${elColor(S.layout.elements[i])}"></span>${esc(elLabel(S.layout.elements[i]))}</li>`).join("")}</ul>`;

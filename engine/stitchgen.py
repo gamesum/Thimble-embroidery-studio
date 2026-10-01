@@ -1062,6 +1062,80 @@ def satin_fill(poly, P, angle=None, start=None):
     return _chain(pieces + top, poly, P.travel_length)
 
 
+def rows_blocks(poly, P, angle=0.0, start=None, max_len=12.0):
+    """Straight-across satin for ANY shape (letters, pictures, shapes with gaps): every stitch runs
+    edge to edge at one fixed angle (0 = horizontal). The shape is cut into blocks wherever a row
+    would have to jump across a gap or split in two; each block is one zig-zag of full-width rows,
+    and blocks are joined nearest-first. Rows longer than max_len are split at scattered points."""
+    from shapely import affinity
+    from shapely.geometry import LineString
+    poly = poly.buffer(P.pull_comp * 0.8, join_style=1)
+    cx, cy = poly.centroid.x, poly.centroid.y
+    rp = affinity.rotate(poly, -angle, origin=(cx, cy))
+    x0, y0, x1, y1 = rp.bounds
+    step = P.satin_spacing / 2
+    blocks, active = [], []   # a block = list of (a, b, y); active = blocks still growing
+    y = y0 + step / 2
+    while y < y1:
+        seg = rp.intersection(LineString([(x0 - 1, y), (x1 + 1, y)]))
+        spans = []
+        for g in getattr(seg, "geoms", [seg]):
+            if g.is_empty or g.length < 0.05:
+                continue
+            xs = [p[0] for p in g.coords]
+            spans.append((min(xs), max(xs)))
+        spans.sort()
+        new_active = []
+        used = set()
+        for a, b in spans:
+            hits = [k for k, blk in enumerate(active) if k not in used and min(b, blk[-1][1]) - max(a, blk[-1][0]) > 0.3]
+            others = sum(1 for a2, b2 in spans if (a2, b2) != (a, b) and hits and min(b2, active[hits[0]][-1][1]) - max(a2, active[hits[0]][-1][0]) > 0.3)
+            if len(hits) == 1 and others == 0:   # one row continues one block
+                blk = active[hits[0]]
+                blk.append((a, b, y)); used.add(hits[0]); new_active.append(blk)
+            else:                                 # a split, a merge or something new: start a fresh block
+                blk = [(a, b, y)]
+                blocks.append(blk); new_active.append(blk)
+        active = new_active
+        y += step
+    # every block: one zig-zag (row ends alternate sides)
+    out = []
+    for blk in blocks:
+        if len(blk) < 2:
+            continue
+        zig = []
+        for k, (a, b, yy) in enumerate(blk):
+            zig += [(a, yy), (b, yy)] if k % 2 == 0 else [(b, yy), (a, yy)]
+        pts, golden = [zig[0]], 0.0
+        for p in zig[1:]:
+            a0 = pts[-1]
+            d = math.hypot(p[0] - a0[0], p[1] - a0[1])
+            if d > max_len:
+                n = int(math.ceil(d / max_len))
+                golden = (golden + 0.618) % 1.0
+                for j in range(n - 1):
+                    t = (j + 0.3 + 0.4 * golden) / n
+                    pts.append((a0[0] + (p[0] - a0[0]) * t, a0[1] + (p[1] - a0[1]) * t))
+            pts.append(p)
+        back = [affinity.rotate(LineString([q, (q[0] + 1e-6, q[1])]), angle, origin=(cx, cy)).coords[0] for q in pts]
+        out.append(clean([tuple(q) for q in back], P.min_stitch * 0.6))
+    if not out:
+        return []
+    # join the blocks nearest-first; the machine travels between them (under the next block)
+    order, cur, left = [], None if start is None else tuple(start), list(range(len(out)))
+    while left:
+        if cur is None:
+            k = left[0]
+        else:
+            k = min(left, key=lambda i: min(math.hypot(out[i][0][0] - cur[0], out[i][0][1] - cur[1]),
+                                            math.hypot(out[i][-1][0] - cur[0], out[i][-1][1] - cur[1])))
+        left.remove(k)
+        if cur is not None and math.hypot(out[k][-1][0] - cur[0], out[k][-1][1] - cur[1]) < math.hypot(out[k][0][0] - cur[0], out[k][0][1] - cur[1]):
+            out[k] = out[k][::-1]
+        order.append(out[k]); cur = out[k][-1]
+    return _chain(order, poly, P.travel_length)
+
+
 def satin_rows(poly, P, angle=None, start=None, max_len=12.0):
     """Side-to-side satin across a solid shape: one straight stitch per row from edge to edge, the
     rows packed at satin spacing - the long glossy pass. Rows longer than the machine can take in one

@@ -231,10 +231,67 @@ def split_picture():
 
 @app.post("/api/merge-drawings")
 def merge_drawings():
+    """Several pieces -> one. Drawings join into one drawing; pictures are laid onto one picture
+    (each keeps its place); pictures mixed with drawings are traced to lines and joined."""
     els = (request.get_json(force=True) or {}).get("elements") or []
-    if len(els) < 2 or any(e.get("type") != "vector" for e in els):
-        return err("Pick two or more drawings to merge.")
-    return jsonify(element=design.merge_vectors(els))
+    if len(els) < 2:
+        return err("Pick two or more pieces to merge.")
+    if any(e.get("type") not in ("vector", "image") for e in els):
+        return err("Words and shapes can't be merged into a drawing - group them instead (Ctrl+G) to keep them together.")
+    if all(e.get("type") == "vector" for e in els):
+        return jsonify(element=design.merge_vectors(els))
+    if all(e.get("type") == "image" for e in els):
+        return jsonify(element=merge_pictures(els))
+    lines = [e if e.get("type") == "vector" else design.trace_to_vector(e) for e in els]
+    lines = [v for v in lines if v]
+    return jsonify(element=design.merge_vectors(lines), note="Pictures were turned into lines so they could join the drawings.")
+
+
+def merge_pictures(els):
+    import numpy as np, math
+    placed = []
+    for e in els:
+        path = os.path.join(UPLOADS, os.path.basename(e.get("image_id", "")))
+        im = raster.load_image(path)
+        w = float(e.get("width_mm") or 40)
+        h = w * im.height / im.width
+        kx, ky = float(e.get("stretch_x") or 1), float(e.get("stretch_y") or 1)
+        placed.append((e, im, w * kx, h * ky))
+    xs, ys = [], []
+    for e, im, w, h in placed:
+        a = math.radians(float(e.get("rotation") or 0))
+        hw = (abs(w * math.cos(a)) + abs(h * math.sin(a))) / 2
+        hh = (abs(w * math.sin(a)) + abs(h * math.cos(a))) / 2
+        xs += [float(e.get("x") or 0) - hw, float(e.get("x") or 0) + hw]
+        ys += [float(e.get("y") or 0) - hh, float(e.get("y") or 0) + hh]
+    X0, X1, Y0, Y1 = min(xs), max(xs), min(ys), max(ys)
+    s = min(1600.0 / max(X1 - X0, Y1 - Y0), max(im.width / w for _, im, w, _ in placed))  # px per mm
+    canvas = None
+    for e, im, w, h in placed:
+        cols = e.get("colors") or []
+        pal = [tuple(c["rgb"]) for c in cols] or raster.palette(im)
+        labels = raster.snap(np.asarray(im), pal)
+        bg = raster.background_index(labels)
+        if canvas is None:
+            bgc = tuple(int(v) for v in pal[bg]) if bg is not None and bg < len(pal) else (255, 255, 255)
+            canvas = Image.new("RGB", (max(8, int((X1 - X0) * s)), max(8, int((Y1 - Y0) * s))), bgc)
+        fg = Image.fromarray(((labels != bg) * 255).astype("uint8")) if bg is not None else Image.new("L", im.size, 255)
+        size = (max(1, int(w * s)), max(1, int(h * s)))
+        im2, fg2 = im.resize(size, Image.LANCZOS), fg.resize(size, Image.LANCZOS)
+        rot = float(e.get("rotation") or 0)
+        if rot:
+            im2 = im2.rotate(-rot, expand=True, resample=Image.BICUBIC)
+            fg2 = fg2.rotate(-rot, expand=True, resample=Image.BICUBIC)
+        cx, cy = (float(e.get("x") or 0) - X0) * s, (float(e.get("y") or 0) - Y0) * s
+        canvas.paste(im2, (int(cx - im2.width / 2), int(cy - im2.height / 2)), fg2)
+    image_id = uuid.uuid4().hex[:12] + ".png"
+    canvas.save(os.path.join(UPLOADS, image_id))
+    info = image_info(image_id, canvas)
+    first = els[0]
+    out = {k: v for k, v in first.items() if k in ("trace", "trace_line", "trace_width", "trace_min", "smooth", "eyes")}
+    out.update(type="image", image_id=image_id, width_mm=round(X1 - X0, 2), aspect=info["aspect"], colors=info["colors"],
+               x=round((X0 + X1) / 2, 2), y=round((Y0 + Y1) / 2, 2), rotation=0, name=first.get("name") or "Picture")
+    return out
 
 
 @app.post("/api/trace-to-lines")
