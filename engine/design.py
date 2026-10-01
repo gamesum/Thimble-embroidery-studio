@@ -314,10 +314,17 @@ def _with_outline(el, m, style, layers=None):
         return layers
     pad = int(round((w + 1.5) * RES)) + 2
     main = [(c, lm, (pad, pad), st) for c, lm, _, st in layers]
-    first = bool(ol.get("first"))
-    gap = num(ol.get("gap_mm"), -0.3) + (FIRST_SHIFT if first else 0.0)
-    border = [(ol.get("color", "#000000"), np.pad(m, pad), (0, 0),
-               "border:%g:%g%s" % (w, gap, ":first" if first else ""))]
+    only = bool(ol.get("only"))  # just the edge, sewn over stitching that's already on the fabric
+    first = bool(ol.get("first")) and not only
+    # edge-only straddles the old edge (half on the letter, half off) so it covers the fill's ragged rim
+    gap = (-w / 2 if only else num(ol.get("gap_mm"), -0.3)) + (FIRST_SHIFT if first else 0.0)
+    st = "border:%g:%g%s" % (w, gap, ":first" if first else "")
+    if ol.get("match"):  # each letter edged in its own thread
+        border = [(c, np.pad(lm, pad), (0, 0), st) for c, lm, _, _ in layers]
+    else:
+        border = [(ol.get("color", "#000000"), np.pad(m, pad), (0, 0), st)]
+    if only:
+        return border
     # sewn first: the letters go on top and hide the border's hops between rings
     return border + main if first else main + border
 
@@ -434,13 +441,16 @@ def _emb_text_blocks(el, fam, P):
     ol = el.get("outline") or {}
     bw = float(ol.get("width_mm") or 0)
     if bw > 0:
-        gap = num(ol.get("gap_mm"), -0.3)
+        only = bool(ol.get("only"))
+        gap = -bw / 2 if only else num(ol.get("gap_mm"), -0.3)
+        if only:
+            blocks = []
         m, (x0, y0) = embfont.outline_mask(shapes, bw + 1.5, RES)
         # close the counters between letters so the border hugs the word, like the TTF path does
-        first = bool(ol.get("first"))
+        first = bool(ol.get("first")) and not only
         if first:
             gap += FIRST_SHIFT
-        border = sg.border_shape(m, bw, gap, P, None if first else np.array(objs[-1][-1]) - (x0, y0))
+        border = sg.border_shape(m, bw, gap, P, None if first or only else np.array(objs[-1][-1]) - (x0, y0))
         if first:
             border = sg.join_hidden([o for o in border if o], m, P)
         border = [[(x + x0, y + y0) for x, y in o] for o in border if o]

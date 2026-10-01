@@ -595,7 +595,10 @@ function wireLetterColors(el) {
 function outlineFields(el) {
   const ol = el.outline || null;
   return `<div class="field border-card"><label class="radio"><input type="checkbox" id="p-ol"${ol ? " checked" : ""}> <b>Satin border</b></label><span class="muted small">An outline in a second thread</span></div>
-    <div id="p-ol-box"${ol ? "" : " hidden"}>${selectField("p-olfirst", "Sew it", [["first", "First, under the letters (nothing to snip)"], ["last", "Last, on top (snip jump threads)"]], ol && !ol.first ? "last" : "first")}${rangeField("p-olw", "Border width (mm)", 0.6, 3, 0.1, ol ? ol.width_mm : 1, "len")}${threadField("p-olc", "Border thread", ol ? ol.color : "#3a2c22")}</div>`;
+    <div id="p-ol-box"${ol ? "" : " hidden"}>${selectField("p-olfirst", "Sew it", [["first", "First, under the letters (nothing to snip)"], ["last", "Last, on top (snip jump threads)"], ["only", "Edge only - sew over letters already stitched"]], ol?.only ? "only" : ol && !ol.first ? "last" : "first")}${rangeField("p-olw", "Border width (mm)", 0.6, 5, 0.1, ol ? ol.width_mm : 1, "len")}
+    <label class="radio"><input type="checkbox" id="p-olmatch"${ol?.match ? " checked" : ""}> Same thread as each letter</label>
+    <div id="p-olc-box"${ol?.match ? " hidden" : ""}>${threadField("p-olc", "Border thread", ol ? ol.color : "#3a2c22")}</div>
+    ${ol?.only ? `<p class="hint">Only the satin edge is sewn. Leave the fabric in the hoop (or re-hoop it exactly) and keep the piece where it was - the machine puts the design at the hoop center, so it lands on the old stitching.</p>` : ""}</div>`;
 }
 
 function renderProps() {
@@ -652,7 +655,7 @@ function renderProps() {
             `<button class="chip${(el.align || "center") === v ? " on" : ""}" data-align="${v}">${t}</button>`).join("")}</div>`) : "")) +
       section("color", "Thread &amp; colors", `<span class="dot" style="background:${el.color}"></span>${esc(threadName(el.color))}${(el.letter_colors || []).some(Boolean) ? " + letters" : ""}`,
         threadField("p-color", "Thread", el.color) + letterColorFields(el)) +
-      section("border", "Border", el.outline ? `${U.len(el.outline.width_mm)} · sewn ${el.outline.first ? "first" : "last"}` : "none", outlineFields(el)) +
+      section("border", "Border", el.outline ? `${U.len(el.outline.width_mm)} · ${el.outline.only ? "edge only" : "sewn " + (el.outline.first ? "first" : "last")}` : "none", outlineFields(el)) +
       section("pos", "Position", `${U.show(el.x)}, ${U.show(el.y)} ${U.u}${el.rotation ? ` · ${el.rotation}°` : ""}`, posFields(el));
   } else if (el.type === "shape") {
     h += `<h2>Shape</h2>` + field("Kind", `<div class="chips">${SHAPES.map(([k, t]) => `<button class="chip${k === el.kind ? " on" : ""}" data-kind="${k}">${t}</button>`).join("")}</div>`) +
@@ -795,10 +798,22 @@ function wireProps(el) {
   const ol = $("#p-ol");
   if (ol) {
     ol.onchange = () => {
-      beginEdit(); el.outline = ol.checked ? { color: $("#p-olc").value || "#3a2c22", width_mm: Math.round(U.toMm(parseFloat($("#p-olw").value)) * 100) / 100 || 1, first: $("#p-olfirst").value === "first" } : null; commit();
+      const how = $("#p-olfirst").value;
+      beginEdit(); el.outline = ol.checked ? { color: $("#p-olc").value || "#3a2c22", width_mm: Math.round(U.toMm(parseFloat($("#p-olw").value)) * 100) / 100 || 1, first: how === "first", only: how === "only", match: $("#p-olmatch").checked } : null; commit();
       $("#p-ol-box").hidden = !ol.checked; scheduleBuild(); save_local();
     };
-    $("#p-olfirst").onchange = () => { if (el.outline) { beginEdit(); el.outline.first = $("#p-olfirst").value === "first"; commit(); scheduleBuild(); save_local(); } };
+    $("#p-olfirst").onchange = () => {
+      if (!el.outline) return;
+      const how = $("#p-olfirst").value;
+      beginEdit(); el.outline.first = how === "first"; el.outline.only = how === "only";
+      if (how === "only" && el.outline.width_mm < 2.5) el.outline.width_mm = 3;  // wide enough to hide the fill's edge
+      commit(); scheduleBuild(); save_local(); renderProps();
+    };
+    $("#p-olmatch").onchange = () => {
+      if (!el.outline) return;
+      beginEdit(); el.outline.match = $("#p-olmatch").checked; commit();
+      $("#p-olc-box").hidden = el.outline.match; scheduleBuild(); save_local();
+    };
     const w = $("#p-olw"), wn = $("#p-olw-n");
     const setw = (v) => { w.value = v; wn.value = v; if (el.outline) { beginEdit(); el.outline.width_mm = Math.round(U.toMm(parseFloat(v)) * 100) / 100; commit(); scheduleBuild(); save_local(); } };
     w.oninput = () => setw(w.value); wn.onchange = () => setw(wn.value);
