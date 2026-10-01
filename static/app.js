@@ -547,6 +547,24 @@ function pasteClip() {
   S.sel = S.layout.elements.length - 1;
   renderLayers(); renderProps(); scheduleBuild(0); save_local();
 }
+async function mergeSelected() {
+  const idx = selected();
+  const els = idx.map((i) => S.layout.elements[i]);
+  if (els.length < 2 || els.some((e) => e.type !== "vector")) { toast("Select two or more drawings to merge them."); return; }
+  try {
+    const r = await api("/api/merge-drawings", { elements: els });
+    commit(true); beginEdit();
+    const at = Math.min(...idx);
+    r.element.id = uid();
+    const gone = new Set(els.map((e) => e.id));
+    S.layout.elements = S.layout.elements.filter((e) => !gone.has(e.id));
+    S.layout.elements.splice(at, 0, r.element);
+    commit(true);
+    clearMulti(); S.sel = at;
+    renderLayers(); renderProps(); scheduleBuild(0); save_local();
+    toast(`Merged ${els.length} pieces into one drawing.`, "good");
+  } catch (e) { toast(esc(e.message), "bad"); }
+}
 function duplicateSelected() {
   // copy the whole selection; copies of a group become a new group of their own
   const idx = selected();
@@ -749,7 +767,8 @@ function renderProps() {
         const one = gs.size === 1 && !gs.has("");
         return (one ? "" : `<button class="btn small primary" id="g-group" title="Ctrl+G">Group</button>`) +
           ([...gs].some(Boolean) ? `<button class="btn small" id="g-ungroup" title="Ctrl+Shift+G">Ungroup</button>` : "");
-      })()}<button class="btn small" id="g-dup" title="Ctrl+D">Duplicate</button></div>
+      })()}<button class="btn small" id="g-dup" title="Ctrl+D">Duplicate</button>${idx.every((i) => S.layout.elements[i].type === "vector")
+        ? `<button class="btn small" id="g-merge" title="Join these drawings into one drawing (Ctrl+M)">Merge into one</button>` : ""}</div>
       <div class="row" style="gap:6px"><button class="btn small" id="g-del">Delete ${idx.length} pieces</button>
         <button class="btn small ghost" id="g-clear">Clear selection</button></div>
       <ul class="multi-list">${idx.map((i) => `<li><span class="dot" style="background:${elColor(S.layout.elements[i])}"></span>${esc(elLabel(S.layout.elements[i]))}</li>`).join("")}</ul>`;
@@ -763,6 +782,7 @@ function renderProps() {
     if ($("#g-group")) $("#g-group").onclick = groupSelected;
     if ($("#g-ungroup")) $("#g-ungroup").onclick = ungroupSelected;
     $("#g-dup").onclick = duplicateSelected;
+    if ($("#g-merge")) $("#g-merge").onclick = mergeSelected;
     $("#g-clear").onclick = () => { clearMulti(); S.sel = -1; renderLayers(); renderProps(); draw(); };
     return;
   }
@@ -823,7 +843,9 @@ function renderProps() {
   } else if (el.type === "vector") {
     const cols = [...new Set((el.parts || []).map((p) => p.color.toLowerCase()))];
     h += `<h2>Drawing</h2>` + rangeField("p-width_mm", "Width (mm)", 5, Math.max(...S.layout.hoop), 0.5, el.width_mm, "len") +
-      `<p class="hint">Redrawn from your picture as clean shapes (${(el.parts || []).length} parts), so it stitches smoothly.</p>` +
+      `<p class="hint">Clean shapes and lines (${(el.parts || []).length} parts, ${(el.parts || []).reduce((n, p) => n + (p.points || []).length, 0)} points), so it stitches smoothly.</p>` +
+      `<button type="button" class="btn small ${S.nodeEdit === el.id ? "primary" : ""}" id="p-nodes">${S.nodeEdit === el.id ? "Done editing points" : "Edit points"}</button>` +
+      (S.nodeEdit === el.id ? `<p class="hint"><b>Drag</b> a dot to move it. <b>Click</b> a dot and press <b>Delete</b> to remove it. <b>Double-click</b> a line to add a dot. <b>Esc</b> when you're done.</p>` : "") +
       `<button type="button" class="btn small" id="p-split" title="Each object (the lights, the mountains) becomes its own layer; press again to split by color, then into single lines and shapes">Split into pieces</button>` +
       `<label class="radio"><input type="checkbox" id="p-eyes"${el.eyes === false ? "" : " checked"}> Sew small holes (eyes) as solid dots</label>` +
       field("Threads", `<div class="vcolors">${cols.map((c) => `<label class="vcolor"><input type="color" data-vc="${c}" value="${c}"><span>${esc(threadName(c))}</span></label>`).join("")}</div>`) +
@@ -841,6 +863,7 @@ function renderProps() {
           ? rangeField("p-trace_width", "Line thickness (mm)", 0.6, 4, 0.1, el.trace_width || 1.2, "len")
           : selectField("p-trace_repeat", "Line weight", [["1", "Single - light"], ["3", "Triple (bean stitch) - bolder"]], String(el.trace_repeat || 1))) +
         rangeField("p-trace_min", "Leave out lines shorter than (mm)", 0, 20, 0.5, el.trace_min ?? 3, "len") +
+        `<button type="button" class="btn small primary" id="p-tolines" title="Turn the trace into lines with dots you can drag, add and delete">Make lines editable</button>` +
         `<p class="hint">Only the edges between colors are sewn - each edge once, in the darker thread - and thin lines are sewn down their middle. Raise "leave out" to drop fur, hatching and other small strokes; untick a color to leave its edges out.</p>` : "") +
       (el.trace ? "" : `<label class="radio"><input type="checkbox" id="p-eyes"${el.eyes === false ? "" : " checked"}> Sew small holes (eyes) as solid dots</label>`) +
       `<button type="button" class="btn small" id="p-split" title="Each separate object (each star, the ghost...) becomes its own picture; press again on a one-object picture to split it by color">Split into pieces</button>` +
@@ -958,6 +981,23 @@ function wireProps(el) {
   }));
   const us = $("#p-unstretch");
   if (us) us.onclick = () => { beginEdit(); delete el.stretch_x; delete el.stretch_y; commit(); scheduleBuild(0); save_local(); renderProps(); };
+  const nb = $("#p-nodes");
+  if (nb) nb.onclick = () => { S.nodeEdit = S.nodeEdit === el.id ? null : el.id; S.nodeSel = null; renderProps(); draw(); };
+  const tlb = $("#p-tolines");
+  if (tlb) tlb.onclick = async () => {
+    busy("now", "Turning the trace into lines…");
+    try {
+      const r = await api("/api/trace-to-lines", el);
+      const i = S.layout.elements.indexOf(el);
+      commit(true); beginEdit();
+      r.element.id = uid();
+      S.layout.elements.splice(i, 1, r.element);
+      commit(true);
+      S.sel = i; S.nodeEdit = r.element.id; S.nodeSel = null;
+      renderLayers(); renderProps(); scheduleBuild(0); save_local();
+      toast(`Now ${r.element.parts.length} editable lines - drag the dots. Undo brings the picture back.`, "good");
+    } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
+  };
   const tl = $("#p-trace_line"); if (tl) tl.onchange = () => { setProp(el, "trace_line", tl.value); renderProps(); };
   const tr = $("#p-trace_repeat"); if (tr) tr.onchange = () => setProp(el, "trace_repeat", +tr.value);
   if ($("#p-trace_width")) wireRange(el, "trace_width");
@@ -1547,6 +1587,7 @@ function draw() {
     ctx.strokeStyle = "rgba(184,50,42,.8)"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
     ctx.strokeRect(ax, ay, bx2 - ax, by2 - ay); ctx.setLineDash([]);
   }
+  if (nodeEl()) { drawNodes(nodeEl()); return; }
   // selection: PowerPoint-style box with 8 square handles + rotate knob
   const el = multi.size > 1 ? null : els[S.sel];
   const bx = el && !el.hidden && selBox(el, S.sel);
@@ -1608,7 +1649,83 @@ function groupHandles() {
   out.rot = [tx, ty - 22];
   return out;
 }
+// ---- point editing for drawings: drag points, click + Delete removes, double-click a line adds one
+S.nodeEdit = null; S.nodeSel = null;
+function nodeEl() { const el = S.layout.elements[S.sel]; return el && el.type === "vector" && S.nodeEdit === el.id && multi.size <= 1 ? el : null; }
+function vecToScreen(el, u, v) {
+  const w = el.width_mm, asp = el.aspect || 0.5, kx = el.stretch_x || 1, ky = el.stretch_y || 1;
+  return elTransform(el)((u - 0.5) * w * kx, (v - asp / 2) * w * ky);
+}
+function screenToVec(el, px, py) {
+  const [mx, my] = px2mm(px, py), a = (-(el.rotation || 0) * Math.PI) / 180;
+  const dx = mx - el.x, dy = my - el.y, lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
+  const w = el.width_mm, asp = el.aspect || 0.5, kx = el.stretch_x || 1, ky = el.stretch_y || 1;
+  return [Math.round((lx / (w * kx) + 0.5) * 10000) / 10000, Math.round((ly / (w * ky) + asp / 2) * 10000) / 10000];
+}
+function hitNode(el, px, py) {
+  let best = null, bd = 8;
+  (el.parts || []).forEach((p, pi) => (p.points || []).forEach(([u, v], i) => {
+    const [x, y] = vecToScreen(el, u, v), d = Math.hypot(px - x, py - y);
+    if (d < bd) { bd = d; best = { p: pi, i }; }
+  }));
+  return best;
+}
+function drawNodes(el) {
+  ctx.save();
+  (el.parts || []).forEach((p, pi) => {
+    const pts = (p.points || []).map(([u, v]) => vecToScreen(el, u, v));
+    if (!pts.length) return;
+    ctx.strokeStyle = "rgba(232,112,42,.9)"; ctx.lineWidth = 1.2; ctx.setLineDash([]);
+    ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    if (p.type === "polygon") ctx.closePath();
+    ctx.stroke();
+    pts.forEach(([x, y], i) => {
+      const on = S.nodeSel && S.nodeSel.p === pi && S.nodeSel.i === i;
+      ctx.fillStyle = on ? "#b8322a" : "#fff"; ctx.strokeStyle = "#b8322a"; ctx.lineWidth = 1.4;
+      ctx.fillRect(x - 4, y - 4, 8, 8); ctx.strokeRect(x - 4, y - 4, 8, 8);
+    });
+  });
+  ctx.restore();
+}
+function deleteNode() {
+  const el = nodeEl(), s = S.nodeSel;
+  if (!el || !s) return false;
+  const part = el.parts[s.p];
+  if (!part) return false;
+  beginEdit();
+  part.points.splice(s.i, 1);
+  const closed = part.points.length > 2 && part.points[0][0] === part.points[part.points.length - 1][0] && part.points[0][1] === part.points[part.points.length - 1][1];
+  if (part.points.length < (part.type === "polygon" ? 3 : 2) || (closed && part.points.length < 3)) el.parts.splice(s.p, 1);
+  S.nodeSel = null;
+  if (!el.parts.length) { commit(true); removeElement(S.sel); S.nodeEdit = null; return true; }
+  commit(true); save_local(); scheduleBuild(0); draw();
+  return true;
+}
+cv.addEventListener("dblclick", (e) => {
+  const el = nodeEl();
+  if (!el) return;
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  // nearest segment within a few pixels: put a new point there
+  let best = null, bd = 7;
+  el.parts.forEach((p, pi) => {
+    if (p.type === "circle") return;
+    const pts = p.points.map(([u, v]) => vecToScreen(el, u, v));
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1], L2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
+      const t = clamp(((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L2, 0, 1);
+      const d = Math.hypot(px - (ax + t * (bx - ax)), py - (ay + t * (by - ay)));
+      if (d < bd) { bd = d; best = { p: pi, i: i + 1 }; }
+    }
+  });
+  if (!best) return;
+  beginEdit();
+  el.parts[best.p].points.splice(best.i, 0, screenToVec(el, px, py));
+  S.nodeSel = best;
+  commit(true); save_local(); scheduleBuild(0); draw();
+});
+
 function hitHandle(px, py) {
+  if (nodeEl()) return null; // editing points: no resize handles
   let hs;
   if (multi.size > 1) {
     hs = groupHandles();
@@ -1639,6 +1756,18 @@ cv.addEventListener("pointerdown", (e) => {
   endSew(); // clicking the design ends the sew-out preview and carries on as a normal click
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   const [mx, my] = px2mm(px, py);
+  const ne = nodeEl();
+  if (ne) {
+    const hit = hitNode(ne, px, py);
+    if (hit) {
+      S.nodeSel = hit; beginEdit();
+      drag = { kind: "node", el: ne, hit };
+      cv.setPointerCapture(e.pointerId); draw();
+      return;
+    }
+    if (hitElement(mx, my) !== S.sel) { S.nodeEdit = null; S.nodeSel = null; renderProps(); }
+    else { S.nodeSel = null; draw(); return; }
+  }
   const h = hitHandle(px, py);
   if (h && multi.size > 1) {
     const gh = groupHandles(), idx = selected();
@@ -1819,6 +1948,8 @@ cv.addEventListener("pointermove", (e) => {
       if (gx !== null) { el.x = gx; drag.guides.x = gx; }
       if (gy !== null) { el.y = gy; drag.guides.y = gy; }
     }
+  } else if (drag.kind === "node") {
+    drag.el.parts[drag.hit.p].points[drag.hit.i] = screenToVec(drag.el, px, py);
   } else if (drag.kind === "resize") {
     applyResize(e, mx, my);
   } else if (drag.kind === "gresize") {
@@ -1863,7 +1994,7 @@ cv.addEventListener("pointerup", () => {
     return;
   }
   commit(true); save_local(); renderProps(); renderLayers();
-  scheduleBuild(k === "resize" || k === "gresize" ? 0 : 350);
+  scheduleBuild(k === "resize" || k === "gresize" || k === "node" ? 0 : 350);
 });
 cv.addEventListener("wheel", (e) => {
   // zoom toward the cursor, like a slicer: the point under the mouse stays put
@@ -2335,6 +2466,7 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault(); e.shiftKey ? ungroupSelected() : groupSelected(); return;
   }
   if (multi.size > 1 && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSelected(); return; }
+  if (multi.size > 1 && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "m") { e.preventDefault(); mergeSelected(); return; }
   if (multi.size > 1) {
     if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSelected(); }
     else if (e.key === "Escape") { clearMulti(); S.sel = -1; renderLayers(); renderProps(); draw(); }
@@ -2348,6 +2480,10 @@ document.addEventListener("keydown", (e) => {
   }
   const el = S.layout.elements[S.sel];
   if (!el) return;
+  if (nodeEl()) {
+    if ((e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); deleteNode(); return; }
+    if (e.key === "Escape") { S.nodeEdit = null; S.nodeSel = null; renderProps(); draw(); return; }
+  }
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeElement(S.sel); }
   else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicate(S.sel); }
   else if (e.key === "Escape") { S.sel = -1; renderLayers(); renderProps(); draw(); }

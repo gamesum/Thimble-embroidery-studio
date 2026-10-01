@@ -224,6 +224,26 @@ def split_picture():
     return jsonify(elements=out, how=how)
 
 
+@app.post("/api/merge-drawings")
+def merge_drawings():
+    els = (request.get_json(force=True) or {}).get("elements") or []
+    if len(els) < 2 or any(e.get("type") != "vector" for e in els):
+        return err("Pick two or more drawings to merge.")
+    return jsonify(element=design.merge_vectors(els))
+
+
+@app.post("/api/trace-to-lines")
+def trace_to_lines():
+    """A traced picture -> an editable drawing of polylines."""
+    el = request.get_json(force=True)
+    if el.get("type") != "image":
+        return err("Only traced pictures can be turned into lines.")
+    v = design.trace_to_vector(el)
+    if not v:
+        return err("There were no lines to turn into a drawing.")
+    return jsonify(element=v)
+
+
 @app.get("/api/meta")
 def meta():
     from pyembroidery.EmbThreadShv import get_thread_set

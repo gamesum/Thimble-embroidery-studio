@@ -288,6 +288,91 @@ def trace_layers(el, pal, masks, cols, bg):
     return out
 
 
+def merge_vectors(els):
+    """Several drawings -> one drawing (the opposite of split_vector): every part keeps its exact
+    place on the hoop, so nothing moves. Turned / stretched pieces are folded into the points."""
+    pts_mm = []  # every part in hoop millimetres
+    for el in els:
+        w, asp = num(el.get("width_mm"), 40), num(el.get("aspect"), 0.5)
+        kx, ky = num(el.get("stretch_x"), 1.0), num(el.get("stretch_y"), 1.0)
+        a = math.radians(num(el.get("rotation"), 0))
+        c, s = math.cos(a), math.sin(a)
+        x0, y0 = num(el.get("x"), 0), num(el.get("y"), 0)
+        sc = w * math.sqrt(kx * ky)
+        for p in el.get("parts", []):
+            q = []
+            for u, v in p.get("points", []):
+                lx, ly = (u - 0.5) * w * kx, (v - asp / 2) * w * ky
+                q.append((x0 + lx * c - ly * s, y0 + lx * s + ly * c))
+            rings = []
+            for r in p.get("rings", []) or []:
+                rr = []
+                for u, v in r:
+                    lx, ly = (u - 0.5) * w * kx, (v - asp / 2) * w * ky
+                    rr.append((x0 + lx * c - ly * s, y0 + lx * s + ly * c))
+                rings.append(rr)
+            pts_mm.append((p, q, rings, float(p.get("r") or 0) * sc, float(p.get("stroke") or 0) * sc))
+    if not pts_mm:
+        return None
+    grow = max([max(r, st / 2) for _, _, _, r, st in pts_mm] + [0])
+    xs = [x for _, q, _, _, _ in pts_mm for x, _ in q]
+    ys = [y for _, q, _, _, _ in pts_mm for _, y in q]
+    X0, X1, Y0, Y1 = min(xs) - grow, max(xs) + grow, min(ys) - grow, max(ys) + grow
+    W = max(X1 - X0, 0.5)
+    parts = []
+    for p, q, rings, r, st in pts_mm:
+        np_ = dict(p, points=[[round((x - X0) / W, 4), round((y - Y0) / W, 4)] for x, y in q])
+        if rings:
+            np_["rings"] = [[[round((x - X0) / W, 4), round((y - Y0) / W, 4)] for x, y in rr] for rr in rings]
+        np_["r"] = round(r / W, 4)
+        np_["stroke"] = round(st / W, 4)
+        parts.append(np_)
+    first = els[0]
+    out = {k: v for k, v in first.items() if k in ("eyes", "group")}
+    out.update(type="vector", width_mm=round(W, 2), aspect=round((Y1 - Y0) / W, 4), parts=parts,
+               x=round((X0 + X1) / 2, 2), y=round((Y0 + Y1) / 2, 2), rotation=0,
+               name=first.get("name") or "Drawing")
+    return out
+
+
+def trace_to_vector(el):
+    """A traced picture -> an editable drawing: every traced line becomes a polyline with a handful
+    of points (move / add / delete them), same place, size and threads as the trace."""
+    el = dict(el, trace=True)
+    layers = element_layers(el)
+    W = num(el.get("width_mm"), 80)
+    if not layers:
+        return None
+    H = layers[0][1].shape[0] / RES
+    bold = el.get("trace_line") == "satin"
+    stroke = (min(4.0, max(0.5, num(el.get("trace_width"), 1.2))) if bold else 0.3) / W
+    parts = []
+    for color, m, (ox, oy), style in layers:
+        mm = m.copy()
+        if not bold:  # hairline edges: thicken a touch so the skeleton is one clean line
+            mm = cv2.dilate(mm.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+        dt = cv2.distanceTransform(mm.astype(np.uint8), cv2.DIST_L2, 5)
+        g = sg.StrokeGraph(mm, dt)
+        for e in g.edges:
+            pts = np.asarray(e["pts"], np.float32)
+            if len(pts) < 2:
+                continue
+            closed = e["a"] == e["b"] and len(pts) > 6
+            ap = cv2.approxPolyDP(pts.reshape(-1, 1, 2), 0.25 * RES, closed).reshape(-1, 2)
+            if len(ap) < 2:
+                continue
+            q = [[round(float(x + ox) / RES / W, 4), round(float(y + oy) / RES / W, 4)] for x, y in ap]
+            if closed:
+                q.append(q[0])
+            parts.append(dict(type="polyline", color=color, stroke=round(stroke, 4), points=q))
+    if not parts:
+        return None
+    out = {k: v for k, v in el.items() if k in ("x", "y", "rotation", "stretch_x", "stretch_y", "group")}
+    out.update(type="vector", width_mm=W, aspect=round(H / W, 4), parts=parts, eyes=False,
+               name=(el.get("name") or "Picture") + " (lines)")
+    return out
+
+
 # border sewn under the letters: the letters' pull compensation spreads ~0.3-0.4 mm over it,
 # so move it out by that much to keep the same visible width
 FIRST_SHIFT = 0.4
