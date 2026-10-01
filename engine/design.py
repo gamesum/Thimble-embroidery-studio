@@ -40,8 +40,13 @@ def num(v, default=0.0):
 # ----------------------------------------------------------------------------- threads
 
 def hex_to_rgb(h):
-    h = h.lstrip("#")
-    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    h = (h or "").strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)   # #c33 -> #cc3333
+    try:
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return (51, 51, 51)               # a damaged color should never stop a build
 
 
 def rgb_to_hex(c):
@@ -848,6 +853,9 @@ def _tie(o, P):
     return [a, toward(a, b, t), a] + o[1:-1] + [y, toward(y, z, t), y]
 
 
+JOIN_GAP = 1.5  # mm: objects of one colour closer than this are joined with a stitch instead of a jump
+
+
 def to_pattern(blocks, P):
     pat = pe.EmbPattern()
     first_block = True
@@ -859,13 +867,21 @@ def to_pattern(blocks, P):
         if not first_block:
             pat.add_command(pe.COLOR_CHANGE)
         first_block = False
+        last = None  # needle position after the previous object in this colour
         for i, o in enumerate(b["objects"]):
+            if last is not None and math.hypot(o[0][0] - last[0], o[0][1] - last[1]) <= JOIN_GAP:
+                # a gap this small isn't worth a thread to snip: just keep stitching across it
+                for x, y in o:
+                    pat.add_stitch_absolute(pe.STITCH, x * 10, y * 10)
+                last = o[-1]
+                continue
             o = _tie(list(o), P)
             if pat.stitches:
                 pat.add_command(pe.TRIM)
             pat.add_stitch_absolute(pe.JUMP, o[0][0] * 10, o[0][1] * 10)
             for x, y in o:
                 pat.add_stitch_absolute(pe.STITCH, x * 10, y * 10)
+            last = o[-1]
     pat.add_command(pe.END)
     return pat
 

@@ -506,6 +506,11 @@ def element_payload(layout, progress=None):
                                           for b in eb]))
     seq = [dict(color=b["color"], element=b.get("element"), objects=[[round(v, 2) for p in o for v in p] for o in b["objects"]])
            for b in blocks]
+    try:
+        from engine import checks
+        st["problems"] = checks.check(blocks, layout.get("hoop", [100, 100]))
+    except Exception:  # a checker bug must never block a build
+        st["problems"] = []
     return dict(elements=per, sequence=seq, stats=st)
 
 

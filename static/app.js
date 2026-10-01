@@ -65,6 +65,7 @@ async function aiInBackground(body, retried = false) {
   const bar = $("#busyBar"), pct = $("#busyPct");
   for (;;) {
     await new Promise((ok) => setTimeout(ok, 700));
+    if (activeAbort?.signal.aborted) { stopJob(); throw new Error("Cancelled."); }
     let p;
     try { p = await (await fetch(`/api/progress/${job}`)).json(); } catch (e) { continue; }
     if (p.pct) { bar.style.width = p.pct + "%"; pct.textContent = p.pct + "%"; if (p.msg) $("#busySub").textContent = p.msg; }
@@ -116,17 +117,23 @@ async function restorePictures(ids) {
   }
 }
 
+let activeAbort = null;
 async function api(path, body, opts = {}) {
   const long = ["/api/build", "/api/ai/analyze", "/api/export", "/api/disk/write", "/api/disk/build"].includes(path);
+  if (long && path !== "/api/build") activeAbort = new AbortController();  // cancellable (not the quiet rebuilds)
   if (S.meta?.hosted && path === "/api/ai/analyze") return aiInBackground(body);
   const job = long ? `j${Date.now().toString(36)}${jobSeq++}` : null;
   if (job) watchJob(job);
   let r;
   try {
     r = await fetch(path, body === undefined ? {} : {
+      signal: path !== "/api/build" ? activeAbort?.signal : undefined,
       method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, job ? { "X-Job": job } : {},
         S.meta?.hosted && path === "/api/ai/analyze" ? { "X-Anthropic-Key": webKey.key, "X-Anthropic-Workspace": webKey.ws } : {}), body: JSON.stringify(body),
     });
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("Cancelled.");
+    throw e;
   } finally { if (job) stopJob(); }
   if (opts.blob && r.status === 409 && !opts.retried) {
     const j = await r.clone().json().catch(() => ({}));
@@ -146,6 +153,7 @@ async function api(path, body, opts = {}) {
 }
 
 function toast(msg, kind = "") {
+  if (/^Cancelled\.?$/.test(msg)) { kind = ""; msg = "Cancelled."; }
   const t = document.createElement("div");
   t.className = "toast " + kind;
   t.innerHTML = `<span class="pin"></span><span>${msg}</span>`;
@@ -162,7 +170,8 @@ function busy(on, text = "Threading the needle…") {
     $("#busyText").textContent = text; $("#busy").classList.toggle("big", on === "now"); $("#busy").hidden = false;
     const v = $("#busy video"); if (v) { v.currentTime = 0; v.play().catch(() => {}); }
   }, on === "now" ? 0 : 160);
-  else $("#busy").hidden = true;
+  else { $("#busy").hidden = true; activeAbort = null; }
+  $("#busyCancel").hidden = on !== "now";
 }
 
 // ------------------------------------------------------------------ history
@@ -1242,7 +1251,10 @@ function renderChart() {
   // server messages are written in mm; show them in the chosen units
   const inUnits = (w) => (U.inch ? w.replace(/(\d+(?:\.\d+)?)(?:\s?[x×]\s?(\d+(?:\.\d+)?))?\s?mm\b/g,
     (m, a, b) => (b ? `${U.show(+a)} × ${U.show(+b)} in` : U.len(+a))) : w);
-  $("#notes").innerHTML = (st.warnings || []).map(inUnits).slice(0, 3).map((w) => `<div class="note">${esc(w)}</div>`).join("");
+  const probs = st.problems || [];
+  $("#notes").innerHTML = (st.warnings || []).map(inUnits).slice(0, 3).map((w) => `<div class="note">${esc(w)}</div>`).join("") +
+    probs.slice(0, 4).map((p, i) => `<div class="note problem ${p.level}" data-prob="${i}" title="Click to see where"><b>${p.level === "warn" ? "⚠" : "ℹ"}</b> ${esc(inUnits(p.msg))}</div>`).join("");
+  $$("#notes [data-prob]").forEach((n) => (n.onclick = () => { S.probFocus = probs[+n.dataset.prob]; draw(); setTimeout(() => { S.probFocus = null; draw(); }, 2500); }));
 }
 
 // ------------------------------------------------------------------ canvas
@@ -1549,6 +1561,7 @@ function draw() {
       threadSel.size && !threadSel.has(blk.color.toLowerCase()) ? 0.16 : 1);
   });
   if ($("#showJumps").checked && S.built) drawJumps();
+  if ($("#showProblems").checked && S.built?.stats?.problems) drawProblems(S.built.stats.problems);
   if (!els.length) {
     ctx.fillStyle = "rgba(122,82,52,.55)"; ctx.font = `${Math.max(18, view.s * 5)}px Hand, cursive`; ctx.textAlign = "center";
     ctx.fillText("Your hoop is empty — add some words or a picture", view.ox, view.oy);
@@ -1629,6 +1642,18 @@ function draw() {
   }
 }
 
+function drawProblems(list) {
+  ctx.save();
+  for (const p of list) {
+    const [x, y] = mm2px(p.x, p.y), warn = p.level === "warn", focus = S.probFocus === p;
+    if (!warn && !focus) continue;   // quiet notes only show up when you click them
+    if (focus) { ctx.strokeStyle = "rgba(196,60,45,.9)"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 26, 0, 7); ctx.stroke(); }
+    ctx.fillStyle = warn ? "#e8702a" : "#6b7a8f"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x, y - 10); ctx.lineTo(x + 9, y + 7); ctx.lineTo(x - 9, y + 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 10px system-ui"; ctx.textAlign = "center"; ctx.fillText("!", x, y + 5.5);
+  }
+  ctx.restore();
+}
 function drawJumps() {
   ctx.strokeStyle = "rgba(184,50,42,.7)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
   let last = null;
@@ -2309,6 +2334,36 @@ $("#openLegal").onclick = async () => {
     $("#legalFonts").innerHTML = r.fonts.map((f) => `<div><b>${esc(f.name)}</b> - ${esc(f.license)}${f.original ? ` (from ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.original)}</a>` : esc(f.original)})` : ""}</div>`).join("");
   } catch (e) { $("#legalFonts").textContent = "Each font's license is listed in its font.json file in the source code."; }
 };
+$("#busyCancel").onclick = () => { if (activeAbort) activeAbort.abort(); $("#busyCancel").hidden = true; busy(false); };
+
+// ---- the "How to" tour (opens by itself the first time)
+const HOWTO = [
+  { icon: "🧵", title: "Welcome to Thimble", body: `<p>Turn words, shapes and pictures into stitches for your embroidery machine. It takes four steps:</p>
+    <ul><li><b>Add</b> something to the hoop</li><li><b>Arrange</b> it</li><li><b>Preview</b> the stitching</li><li><b>Save</b> it for your machine</li></ul>` },
+  { icon: "✚", title: "1. Add to the hoop", body: `<p>On the left: <b>Words</b> to type some text, <b>Shape</b> for hearts and frames, <b>Picture / file</b> to stitch a logo or drawing, and <b>Read a picture</b> to let the AI rebuild a picture as clean stitchable shapes (optional - set it up in Settings).</p>` },
+  { icon: "✥", title: "2. Arrange it", body: `<ul><li><b>Drag</b> to move. Drag a <b>corner or side</b> to stretch; hold <b>Shift</b> to keep the shape.</li>
+    <li>The round knob on top <b>turns</b> it.</li><li><b>Shift+click</b> or drag a box round things to pick several, then <b>Ctrl+G</b> to group them.</li>
+    <li>The panel on the right changes colors, fonts, stitch style and more. <b>Ctrl+Z</b> undoes anything.</li></ul>` },
+  { icon: "▶", title: "3. Preview the stitching", body: `<p>The hoop already shows the real stitches. Press <b>Sew it out</b> to watch them being sewn in order. Orange <b>!</b> marks on the hoop warn about trouble spots - click the notes under the stats to see where.</p>` },
+  { icon: "💾", title: "4. Save for your machine", body: `<p><b>Write to Designer I disk</b> puts the design straight onto your floppy. Other machines? Choose a file type under <b>Or save a file</b> and press <b>Save file</b>. Nothing leaves the hoop area - if part of the design is outside, Thimble won't let you save it.</p>
+    <p class="muted small">You can open this tour again any time from <b>How to</b> at the top.</p>` },
+];
+let howAt = 0;
+function showHow(i = 0) {
+  howAt = Math.max(0, Math.min(HOWTO.length - 1, i));
+  const s = HOWTO[howAt];
+  $("#howStep").innerHTML = `<div class="big">${s.icon}</div><h2>${s.title}</h2>${s.body}`;
+  $("#howDots").innerHTML = HOWTO.map((_, k) => `<i class="${k === howAt ? "on" : ""}"></i>`).join("");
+  $("#howBack").style.visibility = howAt ? "visible" : "hidden";
+  $("#howNext").textContent = howAt === HOWTO.length - 1 ? "Start stitching" : "Next";
+  if (!$("#dlgHow").open) $("#dlgHow").showModal();
+}
+function endHow() { try { localStorage.setItem("thimble.intro", "1"); } catch (e) {} $("#dlgHow").close(); }
+$("#btnHowTo").onclick = () => showHow(0);
+$("#howBack").onclick = () => showHow(howAt - 1);
+$("#howNext").onclick = () => (howAt >= HOWTO.length - 1 ? endHow() : showHow(howAt + 1));
+$("#howSkip").onclick = endHow;
+$("#dlgHow").addEventListener("cancel", () => { try { localStorage.setItem("thimble.intro", "1"); } catch (e) {} });
 const webProjects = {
   all() { try { return JSON.parse(localStorage.getItem("thimble.projects") || "{}"); } catch (e) { return {}; } },
   save(layout) {
@@ -2545,6 +2600,7 @@ $("#hoopWrap").addEventListener("drop", (e) => { e.preventDefault(); const f = e
     if (q.get("select")) S.sel = +q.get("select");
   }
   $("#designName").value = S.layout.name;
+  try { if (!localStorage.getItem("thimble.intro") && !S.layout.elements.length) setTimeout(() => showHow(0), 700); } catch (e) {}
   renderLayers(); renderProps();
   resize();
   scheduleBuild(0);

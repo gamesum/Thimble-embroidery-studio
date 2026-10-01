@@ -43,6 +43,7 @@
     <button class="btn ghost" id="btnSaveAs" title="Save a .thimble file wherever you like">Save as…</button>
     <input type="file" id="openInput" accept=".thimble,.json,image/*,.heic,.heif,.svg,.100,.10o,.bro,.dat,.dsb,.dst,.dsz,.emd,.exp,.exy,.fxy,.gt,.hus,.inb,.jef,.jpx,.ksm,.max,.mit,.new,.pcd,.pcm,.pcq,.pcs,.pec,.pes,.phb,.phc,.sew,.shv,.spx,.stc,.stx,.tap,.tbf,.u01,.vp3,.xxx,.zhs,.zxy" hidden>
     <span class="sep"></span>
+    <button class="btn ghost" id="btnHowTo" title="A quick tour of Thimble">How to</button>
     <button class="btn ghost" id="btnSettings" title="Settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       Settings</button>
@@ -100,6 +101,7 @@
       </div>
       <label class="toggle"><input type="checkbox" id="showArt"> <span>Show artwork</span></label>
       <label class="toggle"><input type="checkbox" id="showJumps"> <span>Show jumps</span></label>
+      <label class="toggle"><input type="checkbox" id="showProblems" checked> <span>Show problems</span></label>
       <button class="btn sew" id="btnSewOut">
         <svg viewBox="0 0 24 24"><path d="M7 5v14l11-7z"/></svg> Sew it out</button>
     </div>
@@ -113,7 +115,7 @@
         <button class="btn ghost small" id="sewClose">Done</button>
       </div>
       <div class="busy" id="busy" hidden><video class="loader" src="/static/loader.webm" autoplay loop muted playsinline aria-hidden="true"></video><span class="busy-words"><span id="busyText">Threading the needle…</span> <b id="busyPct"></b><small id="busySub"></small>
-        <span class="busy-track"><span id="busyBar"></span></span></span></div>
+        <span class="busy-track"><span id="busyBar"></span></span><button type="button" class="btn small ghost busy-cancel" id="busyCancel" hidden>Cancel</button></span></div>
     </div>
     <footer class="chart">
       <div class="stats" id="stats"></div>
@@ -224,6 +226,15 @@
       </details>
     </div>
     <menu><button type="button" class="btn ghost small legal-link" id="openLegal">About &amp; licenses</button><button value="cancel" class="btn ghost">Close</button><button type="button" id="setSave" class="btn primary">Save</button></menu>
+  </form>
+</dialog>
+
+<dialog id="dlgHow" class="sheet how">
+  <form method="dialog">
+    <div class="how-step" id="howStep"></div>
+    <div class="how-dots" id="howDots"></div>
+    <menu><button type="button" class="btn ghost" id="howBack">Back</button><span style="flex:1"></span>
+      <button type="button" class="btn ghost" id="howSkip">Skip</button><button type="button" class="btn primary" id="howNext">Next</button></menu>
   </form>
 </dialog>
 
