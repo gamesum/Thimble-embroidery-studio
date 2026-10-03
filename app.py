@@ -29,7 +29,9 @@ HOSTED = os.environ.get("THIMBLE_HOSTED") == "1"
 @app.after_request
 def _no_stale_ui(resp):
     # the page's own code must never come from an old browser cache after an update
-    if request.path == "/" or request.path.startswith("/static/"):
+    if request.path.endswith((".webm", ".woff2", ".ttf", ".png", ".svg")) and request.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "public, max-age=604800"
+    elif request.path == "/" or request.path.startswith("/static/"):
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
 
@@ -570,11 +572,27 @@ def element_payload(layout, progress=None):
     return dict(elements=per, sequence=seq, stats=st)
 
 
+BUILD_SLOTS = threading.Semaphore(2)   # heavy builds run two at a time; the rest wait (cheap requests still get through)
+LATEST_BUILD = {}                      # page id -> newest build number it has asked for
+
+
 @app.post("/api/build")
 def build():
     layout = request.get_json(force=True)
-    t = time.time()
-    res = element_payload(layout, progress_for(request.headers.get("X-Job"), 0, 0.97))
+    cid, num = request.headers.get("X-Client"), request.headers.get("X-Build-Seq")
+    try:
+        num = int(num)
+    except (TypeError, ValueError):
+        num = None
+    if cid and num is not None:
+        if len(LATEST_BUILD) > 500:
+            LATEST_BUILD.clear()
+        LATEST_BUILD[cid] = max(num, LATEST_BUILD.get(cid, 0))
+    with BUILD_SLOTS:
+        if cid and num is not None and LATEST_BUILD.get(cid, 0) > num:
+            return jsonify(stale=True)       # the page has already asked again; don't spend CPU on an old design
+        t = time.time()
+        res = element_payload(layout, progress_for(request.headers.get("X-Job"), 0, 0.97))
     res["ms"] = int((time.time() - t) * 1000)
     return jsonify(res)
 

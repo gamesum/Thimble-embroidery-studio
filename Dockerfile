@@ -19,4 +19,4 @@ RUN pip install -r requirements.txt gunicorn==23.0.0
 COPY . .
 
 # one process (progress and uploads live in memory), several threads for concurrent visitors
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 600 app:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 32 --timeout 600 app:app

@@ -50,7 +50,7 @@ function watchJob(job) {
         if (p.msg) $("#busySub").textContent = p.msg;
       }
     } catch (e) {}
-  }, 350);
+  }, 800);
 }
 function stopJob() { clearInterval(jobPoll); jobPoll = null; $("#busySub").textContent = ""; $("#busyPct").textContent = ""; $("#busyBar").style.width = "0%"; }
 // website: a picture read runs in the background (web hosts cut long requests off) and the page
@@ -118,6 +118,7 @@ async function restorePictures(ids) {
 }
 
 let activeAbort = null;
+const CLIENT_ID = Math.random().toString(36).slice(2, 10);   // lets the server skip builds this page has already replaced
 async function api(path, body, opts = {}) {
   const long = ["/api/build", "/api/ai/analyze", "/api/export", "/api/disk/write", "/api/disk/build"].includes(path);
   if (long && path !== "/api/build") activeAbort = new AbortController();  // cancellable (not the quiet rebuilds)
@@ -129,6 +130,7 @@ async function api(path, body, opts = {}) {
     r = await fetch(path, body === undefined ? {} : {
       signal: path !== "/api/build" ? activeAbort?.signal : undefined,
       method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, job ? { "X-Job": job } : {},
+        path === "/api/build" ? { "X-Client": CLIENT_ID, "X-Build-Seq": String(S.buildSeq) } : {},
         S.meta?.hosted && path === "/api/ai/analyze" ? { "X-Anthropic-Key": webKey.key, "X-Anthropic-Workspace": webKey.ws } : {}), body: JSON.stringify(body),
     });
   } catch (e) {
