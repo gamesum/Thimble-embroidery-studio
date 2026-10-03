@@ -39,7 +39,6 @@
     <button class="btn ghost" id="btnNew">New</button>
     <button class="btn ghost" id="btnOpen" title="Open a Thimble project, picture, SVG or embroidery file from your computer">Open…</button>
     <button class="btn ghost" id="btnRecent" title="Projects saved in Thimble">Recent</button>
-    <button class="btn ghost" id="btnSave" title="Quick save inside Thimble">Save project</button>
     <button class="btn ghost" id="btnSaveAs" title="Save a .thimble file wherever you like">Save as…</button>
     <input type="file" id="openInput" accept=".thimble,.json,image/*,.heic,.heif,.svg,.100,.10o,.bro,.dat,.dsb,.dst,.dsz,.emd,.exp,.exy,.fxy,.gt,.hus,.inb,.jef,.jpx,.ksm,.max,.mit,.new,.pcd,.pcm,.pcq,.pcs,.pec,.pes,.phb,.phc,.sew,.shv,.spx,.stc,.stx,.tap,.tbf,.u01,.vp3,.xxx,.zhs,.zxy" hidden>
     <span class="sep"></span>
@@ -168,6 +167,7 @@
       <label class="radio"><input type="radio" name="diskMode" value="replace"> Start fresh — this design becomes slot 1 (replaces the menu)</label>
     </div>
     <div class="field"><label for="diskLabel">Menu name <small>(shown on the machine's menu screen, 11 letters max)</small></label><input id="diskLabel" maxlength="11" value="MY DESIGNS"></div>
+    <div class="field" id="diskColors"></div>
     <div class="result" id="diskResult"></div>
     <menu><button value="cancel" class="btn ghost">Close</button><button type="button" id="diskWrite" class="btn primary">Write disk</button></menu>
   </form>

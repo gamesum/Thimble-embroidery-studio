@@ -454,3 +454,13 @@ section.swatch.grow.folded { flex: none; }
 .resizer.hrow::after { left: 12px; right: 12px; top: 5px; height: 4px; }
 .panel.left > .swatch:first-of-type { height: var(--ah, auto); overflow: auto; flex: none; }
 .swatch.out { height: var(--fh, auto); overflow: auto; flex: none; }
+
+.thread-rename { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 13px; color: var(--ink-2); }
+.thread-rename input { flex: 1; min-width: 0; }
+.eyedrop { margin-left: 6px; }
+
+.disk-colors { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.disk-colors li { display: flex; align-items: center; gap: 8px; }
+.disk-colors .dot { width: 16px; height: 16px; flex: none; }
+.disk-colors .arrow { color: var(--ink-3); margin-left: auto; }
+.disk-colors li.far em { color: #b3541e; font-style: normal; font-size: 12px; }

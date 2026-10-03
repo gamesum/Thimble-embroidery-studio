@@ -239,7 +239,16 @@ async function build() {
   busy(true);
   try {
     const sent = JSON.stringify(S.layout);
-    const res = await api("/api/build", S.layout);
+    let res;
+    for (let attempt = 0; ; attempt++) {
+      try { res = await api("/api/build", S.layout); break; }
+      catch (e) {
+        // a busy or waking server turns requests away for a moment: try again instead of leaving old results on screen
+        if (attempt >= 3 || seq !== S.buildSeq || !/rate exceeded|too many|unavailable|bad gateway|timed? ?out|failed to fetch|load failed|network/i.test(e.message || "")) throw e;
+        await new Promise((ok) => setTimeout(ok, 1200 * (attempt + 1)));
+        if (seq !== S.buildSeq) return;
+      }
+    }
     if (seq !== S.buildSeq) return;
     S.built = res; S.dirty = false; S.fontPrev = null; loadNote(false);
     // only drop the resize previews once the stitches really are for the design as it is now
@@ -716,8 +725,10 @@ function threadField(id, label, color, open = false) {
     `<button type="button" class="thread-sw${t.hex.toLowerCase() === (color || "").toLowerCase() ? " on" : ""}" data-hex="${t.hex}" title="${esc(t.name)}" style="background:${t.hex}"></button>`).join("");
   return field(label, `<div class="color-row"><button type="button" class="thread-pick" data-toggle="${id}" aria-expanded="${open}" title="Choose a thread">
       <span class="dot" id="${id}-dot" style="background:${color}"></span><span class="cname" id="${id}-name">${esc(threadName(color))}</span><span class="caret">▾</span></button>
-      <input type="color" id="${id}" value="${color}" title="Any color"></div>
-    <div class="threads" data-for="${id}"${open ? "" : " hidden"}>${sw}</div>`);
+      <input type="color" id="${id}" value="${color}" title="Any color">
+      ${window.EyeDropper ? `<button type="button" class="btn small ghost eyedrop" data-eye="${id}" title="Pick a color from anywhere on your screen - a picture, another window, anything">Dropper</button>` : ""}</div>
+    <div class="threads" data-for="${id}"${open ? "" : " hidden"}>${sw}
+      <label class="thread-rename">Call this color <input type="text" id="${id}-nm" maxlength="40" value="${esc(customName(color))}" placeholder="${esc(threadName(color).replace(/^≈ /, ""))}" spellcheck="false"></label></div>`);
 }
 // collapsible panel sections: all closed when you pick an item, then they stay as you leave them
 let secOpen = {}, secFor = null;
@@ -742,7 +753,22 @@ async function setThreadBrand(brand) {
   }
   renderProps(); if (S.built) renderChart();
 }
+// your own names for colors: {hex: "Name"} saved with the design
+function customName(hex) { return (hex && S.layout?.color_names?.[hex.toLowerCase()]) || ""; }
+function setColorName(hex, name) {
+  hex = (hex || "").toLowerCase(); name = (name || "").trim().slice(0, 40);
+  if (!hex || customName(hex) === name) return;
+  beginEdit();
+  const m = Object.assign({}, S.layout.color_names || {});
+  if (name) m[hex] = name; else delete m[hex];
+  S.layout.color_names = m;
+  commit(true); save_local();
+  $$(`[id$="-name"]`).forEach((n) => { const k = n.id.slice(0, -5), i = $("#" + k); if (i && i.value && i.value.toLowerCase() === hex) n.textContent = threadName(hex); });
+  if (S.built) renderChart();
+}
 function threadName(hex) {
+  const cn = customName(hex);
+  if (cn) return cn;
   const ts = S.meta?.threads || [];
   if (!ts.length || !hex) return "";
   const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -985,9 +1011,13 @@ function wireRange(el, key, rebuild = true, target = el) {
 function wireThread(id, get, set) {
   const inp = $("#" + id);
   if (!inp) return;
-  const apply = (hex) => { inp.value = hex; $("#" + id + "-name").textContent = threadName(hex); const d = $("#" + id + "-dot"); if (d) d.style.background = hex; set(hex);
+  const nm = $("#" + id + "-nm");
+  const apply = (hex) => { inp.value = hex; if (nm) { nm.value = customName(hex); nm.placeholder = threadName(hex).replace(/^≈ /, ""); } $("#" + id + "-name").textContent = threadName(hex); const d = $("#" + id + "-dot"); if (d) d.style.background = hex; set(hex);
     $$(`.threads[data-for="${id}"] .thread-sw`).forEach((b) => b.classList.toggle("on", b.dataset.hex.toLowerCase() === hex.toLowerCase())); };
   inp.oninput = () => apply(inp.value);
+  if (nm) nm.onchange = () => { setColorName(inp.value, nm.value); $("#" + id + "-name").textContent = threadName(inp.value); };
+  const eye = $(`[data-eye="${id}"]`);
+  if (eye) eye.onclick = async () => { try { const r = await new EyeDropper().open(); apply(r.sRGBHex.toLowerCase()); } catch (e) { /* cancelled */ } };
   $$(`.threads[data-for="${id}"] .thread-sw`).forEach((b) => (b.onclick = () => apply(b.dataset.hex)));
 }
 
@@ -1308,11 +1338,16 @@ function renderChart() {
     <span>Sewing time</span><b>≈ ${Math.max(1, Math.round(st.minutes))} min</b>
     <span>Thread</span><b title="Top thread; bobbin ≈ ${U.thread(st.bobbin_m || 0)}">≈ ${U.thread(st.thread_m || 0)} <small class="muted">+ ${U.thread(st.bobbin_m || 0)} bobbin</small></b><span>Thread changes</span><b>${Math.max(0, st.colors.length - 1)}</b>`;
   const seenAt = {};
-  $("#spools").innerHTML = st.colors.map((c, i) => { const hx = c.hex.toLowerCase(), prior = seenAt[hx]; seenAt[hx] = prior || i + 1; return `<div class="spool${threadSel.has(hx) ? " on" : ""}" data-hex="${hx}" title="${prior ? `Same thread as spool ${prior}, sewn again because a piece sewn in between overlaps it. To sew it in one go, put these pieces next to each other in the Layers list.` : "Click to pick for merging"} · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
-    <div class="t"><b>${i + 1}. ${esc(threadBrand === MACHINE_BRAND ? c.thread : threadBrand.replace(/ (Rayon|Polyester|Embroidery)$/, "") + " " + threadName(c.hex).replace(/^≈ /, "≈ "))}</b><span class="n">${prior ? `again (same as ${prior}) · ` : ""}${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`; }).join("") ||
+  $("#spools").innerHTML = st.colors.map((c, i) => { const hx = c.hex.toLowerCase(), prior = seenAt[hx]; seenAt[hx] = prior || i + 1; return `<div class="spool${threadSel.has(hx) ? " on" : ""}" data-hex="${hx}" title="${prior ? `Same thread as spool ${prior}, sewn again because a piece sewn in between overlaps it. To sew it in one go, put these pieces next to each other in the Layers list.` : "Click to pick for merging · double-click to rename"} · ${esc(c.kinds.join(", "))}">${spoolSVG(c.hex)}
+    <div class="t"><b>${i + 1}. ${esc(customName(hx) || (threadBrand === MACHINE_BRAND ? c.thread : threadBrand.replace(/ (Rayon|Polyester|Embroidery)$/, "") + " " + threadName(c.hex).replace(/^≈ /, "≈ ")))}</b><span class="n">${prior ? `again (same as ${prior}) · ` : ""}${fmt(c.stitches)} stitches · ≈ ${U.thread(c.thread_m)}</span></div></div>`; }).join("") ||
     `<span class="muted" style="font-family:Hand,cursive;font-size:18px">Thread chart appears here.</span>`;
   const live = new Set(st.colors.map((c) => c.hex.toLowerCase()));
   threadSel = new Set([...threadSel].filter((h) => live.has(h)));
+  $$("#spools .spool").forEach((sp) => (sp.ondblclick = () => {
+    const h = sp.dataset.hex, cur = customName(h) || threadName(h).replace(/^≈ /, "");
+    const v = prompt("What do you want to call this color? (leave empty to go back to the thread's own name)", cur);
+    if (v !== null) setColorName(h, v);
+  }));
   $$("#spools .spool").forEach((sp) => (sp.onclick = () => {
     const h = sp.dataset.hex;
     threadSel.has(h) ? threadSel.delete(h) : threadSel.add(h);
@@ -2220,9 +2255,25 @@ async function doExport() {
   } catch (e) { toast(esc(e.message), "bad"); } finally { busy(false); }
 }
 
+// the SHV file only holds a number into the machine's own thread list: show which machine thread each color becomes
+function renderDiskColors() {
+  const host = $("#diskColors"), cols = S.built?.stats?.colors || [];
+  const machine = S.meta?.machineThreads || S.meta?.threads || [];
+  if (!cols.length) { host.innerHTML = ""; return; }
+  const rows = cols.map((c, i) => {
+    const mt = machine.find((t) => t.name === c.thread), far = mt ? deltaE(c.hex, mt.hex) : 0;
+    const mine = customName(c.hex.toLowerCase());
+    return `<li class="${far > 12 ? "far" : ""}"><span class="dot" style="background:${c.hex}"></span><span>${i + 1}. ${esc(mine || threadName(c.hex))}</span>
+      <span class="arrow">→ machine</span><span class="dot" style="background:${mt ? mt.hex : "#ccc"}"></span><b>${esc(c.thread)}</b>${far > 12 ? `<em>different shade</em>` : ""}</li>`;
+  }).join("");
+  const anyFar = cols.some((c) => { const mt = machine.find((t) => t.name === c.thread); return mt && deltaE(c.hex, mt.hex) > 12; });
+  host.innerHTML = `<label>Colors on the machine</label><ul class="disk-colors">${rows}</ul>
+    <p class="muted small">The file only holds the machine's own thread list, so the machine shows its names, not yours. ${anyFar ? "Marked ones are a different shade from what you picked - the machine can't show that exact color." : "These match your colors closely."}</p>`;
+}
 async function openDisk() {
   if (!S.layout.elements.length) { toast("Add something to the hoop first."); return; }
   if (blockedOffHoop()) return; // say so up front, before the disk window covers the page
+  renderDiskColors();
   $("#diskResult").className = "result"; $("#diskResult").textContent = "";
   const web = !!S.meta.hosted;
   $("#diskLocal").hidden = web; $("#diskWeb").hidden = !web;
@@ -2578,13 +2629,6 @@ async function openFile(file) {
   addPicture(file);  // pictures, SVG and embroidery files join the current design
 }
 $("#btnSaveAs").onclick = saveProjectFile;
-$("#btnSave").onclick = async () => {
-  try {
-    if (S.meta.hosted) webProjects.save(JSON.parse(snapshot()));
-    else await api("/api/projects", S.layout);
-    toast(`Saved project “${esc(S.layout.name)}”${S.meta.hosted ? " in this browser" : ""}.`, "good");
-  } catch (e) { toast(esc(e.message), "bad"); }
-};
 $("#btnNew").onclick = () => {
   if (S.layout.elements.length && !confirm("Start a new design? (Save first if you want to keep this one.)")) return;
   commit(true); const keep = { hoop: S.layout.hoop, fabric: S.layout.fabric, fabric_color: S.layout.fabric_color };
