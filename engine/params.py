@@ -50,7 +50,7 @@ FABRICS = {
 }
 
 
-DENSITY = {"light": 1.15, "standard": 1.0, "dense": 0.85}  # multiplies stitch spacing
+DENSITY = {"light": 1.05, "standard": 0.9, "dense": 0.78, "extra": 0.66}  # multiplies stitch spacing (smaller = more stitches)
 
 
 def params_for(fabric="knit", density="standard", **overrides):
